@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mulheres que Voam — Eventos</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap');
+  html, body { margin:0; background:#0E1A2B; font-family:'Space Mono', monospace; }
+  .display { font-family:'Fraunces', serif; }
+  #root:empty::before { content:'Carregando catálogo...'; color:#5b7a99; display:block; padding:40px; font-family:'Space Mono',monospace; }
+
+  .stub { position: relative; background: #10233A; border: 1px solid #1F3A57; }
+  .stub::before, .stub::after {
+    content: ''; position: absolute; width: 20px; height: 20px;
+    background: #0E1A2B; border-radius: 50%; top: 50%; transform: translateY(-50%);
+  }
+  .stub::before { left: -10px; }
+  .stub::after { right: -10px; }
+  .perf { background-image: radial-gradient(circle, #1F3A57 1.5px, transparent 1.5px); background-size: 10px 10px; }
+  .ticket-btn { background:#E7B10A; color:#0E1A2B; transition: transform .15s ease, background .15s ease; }
+  .ticket-btn:hover { background:#F5C518; transform: translateY(-1px); }
+  .ticket-btn:active { transform: translateY(0); }
+  .modal-enter { animation: modalIn .18s ease-out; }
+  @keyframes modalIn { from { opacity:0; transform: scale(.97); } to { opacity:1; transform: scale(1); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+window.addEventListener('error', function (e) {
+  var root = document.getElementById('root');
+  root.innerHTML = '<div style="color:#fff;background:#0E1A2B;font-family:monospace;padding:24px;white-space:pre-wrap;">⚠ Erro ao carregar:\n\n' + (e.message || e) + '</div>';
+});
+</script>
+<script type="module">
+// ======================= CONFIGURAÇÃO =======================
+// Use as MESMAS chaves do arquivo mulheres-que-voam.html (mesmo projeto Supabase)
+const SUPABASE_URL = 'https://xjeyykvousnpxvjeourn.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqZXl5a3ZvdXNucHh2amVvdXJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwMTA1NDYsImV4cCI6MjA5OTU4NjU0Nn0.Oq9Fy4fNvMz1459mKA_dP71RWU0udKSABumBHaJBGRg';
+const WHATSAPP_NUMBER = '5571999999999'; // TODO: número da empresa (DDI+DDD+número, só dígitos)
+// ==============================================================
+
+const ORDER_MARKER = '#PEDIDO-INGRESSO#';
+const configPending = SUPABASE_URL.includes('COLE_AQUI') || SUPABASE_ANON_KEY.includes('COLE_AQUI');
+
+const root = document.getElementById('root');
+
+if (configPending) {
+  root.innerHTML = `
+    <div class="min-h-screen flex items-center justify-center p-6">
+      <div class="stub rounded-sm p-8 max-w-md text-center">
+        <div class="display text-white text-xl font-semibold mb-3">Configuração pendente</div>
+        <div class="text-[#8fa9c4] text-sm">Preencha SUPABASE_URL e SUPABASE_ANON_KEY no topo do arquivo antes de publicar.</div>
+      </div>
+    </div>`;
+  throw new Error('Configuração pendente');
+}
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function fmtBRL(v) { return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+function fmtDate(dataISO, hora) {
+  const d = new Date(dataISO + 'T' + (hora || '00:00'));
+  return d.toLocaleDateString('pt-BR') + ' às ' + (hora || '').slice(0,5);
+}
+
+function buildOrderMessage(ev, paymentMethod) {
+  return [
+    ORDER_MARKER,
+    `Evento: ${ev.nome}`,
+    `Data: ${fmtDate(ev.data, ev.hora)}`,
+    `Valor: ${fmtBRL(ev.preco)}`,
+    `Pagamento: ${paymentMethod}`,
+  ].join('\n');
+}
+function openWhatsApp(ev, paymentMethod) {
+  const msg = buildOrderMessage(ev, paymentMethod);
+  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+let state = { events: [], loading: true, modalEvent: null };
+
+async function loadEvents() {
+  // A RLS já filtra: só retornam eventos com ativo_venda = true e status = 'aberto'
+  const { data, error } = await supabase.from('mv_eventos').select('*').order('data', { ascending: true });
+  if (error) { console.error(error); return []; }
+  return data;
+}
+
+function render() {
+  root.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'min-h-screen px-4 py-10 md:py-16';
+  wrap.innerHTML = `
+    <div class="max-w-3xl mx-auto">
+      <div class="mb-10">
+        <div class="text-[#E7B10A] text-xs tracking-[0.3em] mb-2">MULHERES QUE VOAM</div>
+        <h1 class="display text-white text-4xl md:text-5xl font-semibold">Ingressos disponíveis</h1>
+      </div>
+      <div id="list" class="space-y-5"></div>
+    </div>
+  `;
+  root.appendChild(wrap);
+
+  const list = wrap.querySelector('#list');
+  if (state.loading) {
+    list.innerHTML = `<div class="text-[#5b7a99]">Carregando eventos...</div>`;
+  } else {
+    if (state.events.length === 0) {
+      list.innerHTML = `<div class="stub p-8 text-center text-[#5b7a99]">Nenhum evento à venda no momento.</div>`;
+    }
+    state.events.forEach(ev => {
+      const card = document.createElement('div');
+      card.className = 'stub rounded-sm overflow-hidden flex';
+      card.innerHTML = `
+        <div class="flex-1 p-6 flex items-center justify-between gap-6 flex-wrap">
+          <div>
+            <div class="display text-white text-xl md:text-2xl font-semibold">${ev.nome}</div>
+            <div class="text-[#8fa9c4] text-sm mt-1">${fmtDate(ev.data, ev.hora)}</div>
+          </div>
+          <div class="flex items-center gap-5">
+            <div class="text-[#E7B10A] text-lg font-bold">${fmtBRL(ev.preco)}</div>
+            <button data-id="${ev.id}" class="buy-btn ticket-btn px-5 py-2.5 rounded-sm font-bold text-sm tracking-wide">COMPRAR INGRESSO</button>
+          </div>
+        </div>
+        <div class="perf w-4"></div>
+      `;
+      list.appendChild(card);
+    });
+    list.querySelectorAll('.buy-btn').forEach(btn => {
+      btn.addEventListener('click', () => { state.modalEvent = state.events.find(e => e.id === btn.dataset.id); render(); });
+    });
+  }
+
+  if (state.modalEvent) renderModal(wrap);
+}
+
+function renderModal(wrap) {
+  const ev = state.modalEvent;
+  const overlay = document.createElement('div');
+  overlay.className = 'fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50';
+  overlay.innerHTML = `
+    <div class="modal-enter stub rounded-sm p-6 max-w-sm w-full">
+      <div class="display text-white text-lg font-semibold mb-1">${ev.nome}</div>
+      <div class="text-[#8fa9c4] text-sm mb-4">${fmtDate(ev.data, ev.hora)} · ${fmtBRL(ev.preco)}</div>
+      <div class="text-[#c5d5e5] text-xs mb-2 tracking-wide">FORMA DE PAGAMENTO</div>
+      <div class="flex gap-2 mb-5">
+        <button data-method="Pix" class="pay-btn flex-1 border border-[#1F3A57] text-white text-sm py-2 rounded-sm hover:border-[#E7B10A]">Pix</button>
+        <button data-method="Cartão de crédito" class="pay-btn flex-1 border border-[#1F3A57] text-white text-sm py-2 rounded-sm hover:border-[#E7B10A]">Cartão</button>
+      </div>
+      <button id="close-modal" class="text-[#5b7a99] text-xs underline">cancelar</button>
+    </div>`;
+  wrap.appendChild(overlay);
+  overlay.querySelectorAll('.pay-btn').forEach(btn => btn.addEventListener('click', () => {
+    openWhatsApp(ev, btn.dataset.method);
+    state.modalEvent = null;
+    render();
+  }));
+  overlay.querySelector('#close-modal').addEventListener('click', () => { state.modalEvent = null; render(); });
+}
+
+(async () => {
+  state.events = await loadEvents();
+  state.loading = false;
+  render();
+})();
+</script>
+</body>
+</html>
