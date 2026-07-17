@@ -313,6 +313,10 @@
               <label for="ePreco">Preço do ingresso (R$)</label>
               <input type="number" id="ePreco" min="0" step="0.01" placeholder="Ex: 50.00">
             </div>
+            <div>
+              <label for="eImagem">Imagem do evento</label>
+              <input type="file" id="eImagem" accept="image/*" style="display:block;">
+            </div>
           </div>
           <div class="price-row" style="margin-bottom:14px;">
             <input type="checkbox" id="eAtivoVenda">
@@ -507,6 +511,15 @@
   var progEditandoId = null;
   var historicoAtualId = null;
 
+  async function uploadImagemEvento(file, eventoId){
+    var ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    var path = eventoId + '-' + Date.now() + '.' + ext;
+    var { error } = await supabase.storage.from('eventos-imagens').upload(path, file, { upsert: true });
+    if(error){ showToast('Erro ao enviar imagem: ' + error.message); return null; }
+    var { data } = supabase.storage.from('eventos-imagens').getPublicUrl(path);
+    return data.publicUrl;
+  }
+
   function eventoStats(ev){
     var recebido = ev.participantes.reduce(function(s,p){ return s + (Number(p.valorPago)||0); }, 0);
     var custos = ev.custos.reduce(function(s,c){ return s + (Number(c.valor)||0); }, 0);
@@ -605,6 +618,7 @@
     var precoRaw = document.getElementById('ePreco').value;
     var preco = precoRaw === '' ? null : Number(precoRaw);
     var ativoVenda = document.getElementById('eAtivoVenda').checked;
+    var arquivoImagem = document.getElementById('eImagem').files[0];
     if(!nome || !data || !hora) return;
     var form = this;
     var { data: row, error } = await supabase.from('mv_eventos').insert({
@@ -612,8 +626,15 @@
       preco: preco, ativo_venda: ativoVenda, created_by: session.user.id
     }).select().single();
     if(error){ showToast('Erro ao criar evento: ' + error.message); return; }
+    var imagemUrl = row.imagem_url;
+    if(arquivoImagem){
+      imagemUrl = await uploadImagemEvento(arquivoImagem, row.id);
+      if(imagemUrl){
+        await supabase.from('mv_eventos').update({ imagem_url: imagemUrl }).eq('id', row.id);
+      }
+    }
     var novo = { id: row.id, nome: row.nome, data: row.data, hora: row.hora, status: row.status,
-      finalizadoEm: row.finalizado_em, preco: row.preco, ativoVenda: row.ativo_venda,
+      finalizadoEm: row.finalizado_em, preco: row.preco, ativoVenda: row.ativo_venda, imagemUrl: imagemUrl,
       participantes: [], custos: [], programacao: [] };
     state.eventos.push(novo);
     form.reset();
@@ -665,6 +686,12 @@
       html += '<input type="checkbox" id="eventoAtivoVenda" '+(ev.ativoVenda?'checked':'')+'>';
       html += '<label for="eventoAtivoVenda" style="margin:0;">à venda no catálogo</label>';
       html += '<button class="btn-ghost btn-sm" id="btnSalvarVenda">Salvar</button>';
+      html += '</div>';
+      html += '<div class="price-row" style="margin-top:10px;">';
+      html += '<label style="margin:0;">Imagem do evento</label>';
+      html += '<input type="file" id="eventoImagem" accept="image/*" style="display:block;max-width:220px;">';
+      html += '<button class="btn-ghost btn-sm" id="btnSalvarImagem">Enviar</button>';
+      if(ev.imagemUrl) html += '<img src="'+ev.imagemUrl+'" style="height:36px;border-radius:6px;">';
       html += '</div>';
     }
     html += '</div>';
@@ -751,6 +778,20 @@
     var btnExportarPdf = container.querySelector('#btnExportarPdf');
     if(btnExportarPdf) btnExportarPdf.addEventListener('click', function(){
       exportarConfirmadasPdf(ev, s);
+    });
+
+    var btnSalvarImagem = container.querySelector('#btnSalvarImagem');
+    if(btnSalvarImagem) btnSalvarImagem.addEventListener('click', async function(){
+      var file = container.querySelector('#eventoImagem').files[0];
+      if(!file){ showToast('Escolha uma imagem primeiro.'); return; }
+      var url = await uploadImagemEvento(file, ev.id);
+      if(!url) return;
+      var { error } = await supabase.from('mv_eventos').update({ imagem_url: url }).eq('id', ev.id);
+      if(error){ showToast('Erro ao salvar imagem: ' + error.message); return; }
+      ev.imagemUrl = url;
+      showToast('Imagem atualizada.');
+      renderEventoDetalhe(ev, container, opts);
+      renderEventosGrid();
     });
 
     var finBtn = container.querySelector('[data-finalizar]');
@@ -991,7 +1032,7 @@
           var r2 = await supabase.from('mv_eventos').insert({
             nome: ev.nome, data: ev.data, hora: ev.hora, status: ev.status || 'aberto',
             finalizado_em: ev.finalizadoEm || null, preco: (ev.preco!=null?ev.preco:null),
-            ativo_venda: !!ev.ativoVenda, created_by: session.user.id
+            ativo_venda: !!ev.ativoVenda, imagem_url: ev.imagemUrl || null, created_by: session.user.id
           }).select().single();
           if(r2.error) throw r2.error;
           var participantes = ev.participantes || [];
@@ -1053,6 +1094,7 @@
       return {
         id: ev.id, nome: ev.nome, data: ev.data, hora: (ev.hora||'').slice(0,5),
         status: ev.status, finalizadoEm: ev.finalizado_em, preco: ev.preco, ativoVenda: ev.ativo_venda,
+        imagemUrl: ev.imagem_url,
         participantes: participantesRes.data.filter(function(p){ return p.evento_id===ev.id; })
           .map(function(p){ return { id: p.id, mulherId: p.mulher_id, nome: p.nome, valorPago: p.valor_pago }; }),
         custos: custosRes.data.filter(function(c){ return c.evento_id===ev.id; })
