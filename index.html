@@ -30,23 +30,49 @@
   #root:empty::before { content:'Carregando catálogo...'; color:var(--olive); display:block; padding:40px; }
 
   .card {
+    position:relative;
     background:#fff; border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow);
     overflow:hidden;
   }
-  .card-img { width:100%; height:170px; object-fit:cover; display:block; background:var(--cream-dim); }
+  .card::before, .card::after {
+    content:''; position:absolute; width:22px; height:22px; background:var(--cream);
+    border-radius:50%; top:50%; transform:translateY(-50%); z-index:2;
+  }
+  .card::before { left:-11px; }
+  .card::after { right:-11px; }
+  .card.is-finalizado { filter:grayscale(1); }
+  .ribbon {
+    position:absolute; top:16px; left:-34px; width:160px; text-align:center;
+    background:var(--rose-dark); color:#fff; font-size:.68rem; font-weight:700;
+    letter-spacing:.06em; text-transform:uppercase; padding:5px 0; transform:rotate(-40deg);
+    box-shadow:0 2px 6px rgba(0,0,0,.25); z-index:3;
+  }
+  .card-img { width:150px; flex-shrink:0; object-fit:cover; display:block; background:var(--cream-dim); }
   .card-img-placeholder {
-    width:100%; height:170px; display:flex; align-items:center; justify-content:center;
+    width:150px; flex-shrink:0; display:flex; align-items:center; justify-content:center;
     background:var(--cream-dim);
   }
+  .perf { width:4px; flex-shrink:0; background-image: radial-gradient(circle, var(--line) 1.5px, transparent 1.5px); background-size:8px 8px; }
   .btn-primary { background:var(--olive-deep); color:var(--cream); transition:transform .15s ease, background .15s ease; }
   .btn-primary:hover { background:var(--olive); transform:translateY(-1px); }
   .btn-primary:active { transform:translateY(0); }
+  .btn-disabled { background:var(--olive-soft); color:var(--cream); cursor:default; }
   .btn-outline { border:1px solid var(--line); color:var(--olive-deep); background:transparent; }
   .btn-outline:hover { background:var(--cream-dim); border-color:var(--olive-soft); }
+  .btn-instagram {
+    background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7); color:#fff;
+    transition:transform .15s ease, filter .15s ease;
+  }
+  .btn-instagram:hover { filter:brightness(1.08); transform:translateY(-1px); }
   .input-field { border:1px solid var(--line); border-radius:8px; padding:9px 11px; font-size:.9rem; width:100%; }
   .input-field:focus { outline:2px solid var(--gold); outline-offset:1px; }
   .modal-enter { animation: modalIn .18s ease-out; }
   @keyframes modalIn { from { opacity:0; transform: scale(.97); } to { opacity:1; transform: scale(1); } }
+  @media(max-width:520px){
+    .card { flex-direction:column; }
+    .card-img, .card-img-placeholder { width:100%; height:140px; }
+    .perf { width:100%; height:4px; background-size:8px 8px; }
+  }
 </style>
 </head>
 <body>
@@ -104,9 +130,11 @@ function isTelValido(v) { return v.replace(/\D/g, '').length >= 10; }
 let state = { events: [], loading: true, modalEvent: null, modalError: '', progEvent: null, progItens: [], progLoading: false };
 
 async function loadEvents() {
-  const { data, error } = await supabase.from('mv_eventos').select('*').order('data', { ascending: true });
+  const { data, error } = await supabase.from('mv_eventos').select('*');
   if (error) { console.error(error); return []; }
-  return data;
+  const abertos = data.filter(e => e.status === 'aberto').sort((a,b) => a.data.localeCompare(b.data));
+  const finalizados = data.filter(e => e.status !== 'aberto').sort((a,b) => b.data.localeCompare(a.data));
+  return abertos.concat(finalizados);
 }
 
 function render() {
@@ -115,12 +143,19 @@ function render() {
   wrap.className = 'min-h-screen px-4 py-10 md:py-16';
   wrap.innerHTML = `
     <div class="max-w-3xl mx-auto">
-      <div class="flex items-center gap-4 mb-12">
-        <img src="data:image/png;base64,${LOGO_ICON_B64}" alt="" style="width:64px;height:auto;flex-shrink:0;">
-        <div class="display leading-tight" style="color:var(--olive-deep);">
-          <div style="font-size:1.5rem;font-weight:400;">mulheres</div>
-          <div style="font-size:1.5rem;font-weight:400;margin-top:-4px;">que voam</div>
+      <div class="flex items-center justify-between gap-4 mb-12 flex-wrap">
+        <div class="flex items-center gap-4">
+          <img src="data:image/png;base64,${LOGO_ICON_B64}" alt="" style="width:96px;height:auto;flex-shrink:0;">
+          <div class="display leading-tight" style="color:var(--olive-deep);">
+            <div style="font-size:2.1rem;font-weight:400;">mulheres</div>
+            <div style="font-size:2.1rem;font-weight:400;margin-top:-8px;">que voam</div>
+          </div>
         </div>
+        <a href="https://www.instagram.com/mulheresquevoam1?igsh=ZG5uem9uZXAxemEy" target="_blank" rel="noopener"
+           class="btn-instagram px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
+          Seguir no Instagram
+        </a>
       </div>
       <div class="mb-8">
         <div style="color:var(--olive);font-size:.72rem;letter-spacing:.25em;text-transform:uppercase;margin-bottom:6px;">Eventos</div>
@@ -139,20 +174,27 @@ function render() {
       list.innerHTML = `<div class="card p-8 text-center" style="color:var(--olive);">Nenhum evento à venda no momento.</div>`;
     }
     state.events.forEach(ev => {
+      const finalizado = ev.status !== 'aberto';
       const card = document.createElement('div');
-      card.className = 'card';
+      card.className = 'card flex' + (finalizado ? ' is-finalizado' : '');
       const imgHtml = ev.imagem_url
         ? `<img src="${ev.imagem_url}" class="card-img" alt="${ev.nome}">`
-        : `<div class="card-img-placeholder"><img src="data:image/png;base64,${LOGO_ICON_B64}" style="width:70px;opacity:.35;"></div>`;
+        : `<div class="card-img-placeholder"><img src="data:image/png;base64,${LOGO_ICON_B64}" style="width:60px;opacity:.35;"></div>`;
+      const ribbonHtml = finalizado ? `<div class="ribbon">Evento encerrado</div>` : '';
+      const buyBtnHtml = finalizado
+        ? `<button class="btn-disabled px-5 py-2.5 rounded-lg font-semibold text-sm" disabled>Encerrado</button>`
+        : `<button data-id="${ev.id}" class="buy-btn btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm">Comprar ingresso</button>`;
       card.innerHTML = `
+        ${ribbonHtml}
         ${imgHtml}
-        <div class="p-5">
+        <div class="perf"></div>
+        <div class="p-5 flex-1">
           <div class="display" style="font-size:1.25rem;font-weight:500;color:var(--ink);">${ev.nome}</div>
           <div style="color:var(--olive);font-size:.85rem;margin-top:2px;">${fmtDate(ev.data, ev.hora)}</div>
           <button data-prog-id="${ev.id}" class="prog-btn text-xs mt-2 underline decoration-dotted" style="color:var(--olive);">Ver programação</button>
           <div class="flex items-center justify-between mt-4">
             <div class="font-bold" style="color:var(--sage-dark);font-size:1.15rem;">${fmtBRL(ev.preco)}</div>
-            <button data-id="${ev.id}" class="buy-btn btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm">Comprar ingresso</button>
+            ${buyBtnHtml}
           </div>
         </div>
       `;
@@ -211,49 +253,3 @@ function renderModal(wrap) {
   const overlay = document.createElement('div');
   overlay.className = 'fixed inset-0 flex items-center justify-center p-4 z-50';
   overlay.style.background = 'rgba(58,60,44,0.55)';
-  overlay.innerHTML = `
-    <div class="modal-enter card p-6 max-w-sm w-full">
-      <div class="display" style="font-size:1.15rem;font-weight:500;color:var(--ink);">${ev.nome}</div>
-      <div style="color:var(--olive);font-size:.85rem;margin-bottom:16px;">${fmtDate(ev.data, ev.hora)} · ${fmtBRL(ev.preco)}</div>
-
-      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">Nome completo</label>
-      <input id="input-nome" type="text" placeholder="Seu nome completo" class="input-field mb-3">
-
-      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">WhatsApp</label>
-      <input id="input-tel" type="tel" placeholder="(71) 99999-9999" class="input-field mb-3">
-
-      <div style="color:var(--rose-dark);font-size:.78rem;min-height:1em;margin-bottom:8px;">${state.modalError || ''}</div>
-
-      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:8px;">Forma de pagamento</label>
-      <div class="flex gap-2 mb-5">
-        <button data-method="Pix" class="pay-btn btn-outline flex-1 py-2 rounded-lg text-sm font-medium">Pix</button>
-        <button data-method="Cartão de crédito" class="pay-btn btn-outline flex-1 py-2 rounded-lg text-sm font-medium">Cartão</button>
-      </div>
-      <button id="close-modal" class="text-xs underline" style="color:var(--olive);">cancelar</button>
-    </div>`;
-  wrap.appendChild(overlay);
-
-  overlay.querySelectorAll('.pay-btn').forEach(btn => btn.addEventListener('click', async () => {
-    const nome = overlay.querySelector('#input-nome').value.trim();
-    const tel = overlay.querySelector('#input-tel').value.trim();
-    if (!isNomeValido(nome)) { state.modalError = 'Informe seu nome completo (nome e sobrenome).'; render(); return; }
-    if (!isTelValido(tel)) { state.modalError = 'Informe um WhatsApp válido, com DDD.'; render(); return; }
-    state.modalError = '';
-    btn.disabled = true;
-    btn.textContent = 'Aguarde...';
-    await registrarMulher(nome, tel);
-    openWhatsApp(ev, btn.dataset.method, nome);
-    state.modalEvent = null;
-    render();
-  }));
-  overlay.querySelector('#close-modal').addEventListener('click', () => { state.modalEvent = null; state.modalError = ''; render(); });
-}
-
-(async () => {
-  state.events = await loadEvents();
-  state.loading = false;
-  render();
-})();
-</script>
-</body>
-</html>
