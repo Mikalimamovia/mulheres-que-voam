@@ -40,7 +40,7 @@ window.addEventListener('error', function (e) {
 // Use as MESMAS chaves do arquivo mulheres-que-voam.html (mesmo projeto Supabase)
 const SUPABASE_URL = 'https://xjeyykvousnpxvjeourn.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqZXl5a3ZvdXNucHh2amVvdXJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwMTA1NDYsImV4cCI6MjA5OTU4NjU0Nn0.Oq9Fy4fNvMz1459mKA_dP71RWU0udKSABumBHaJBGRg';
-const WHATSAPP_NUMBER = '5571984695034'; // TODO: número da empresa (DDI+DDD+número, só dígitos)
+const WHATSAPP_NUMBER = '5571984695034'; // número da empresa (DDI+DDD+número, só dígitos)
 // ==============================================================
 
 const ORDER_MARKER = '#PEDIDO-INGRESSO#';
@@ -67,21 +67,32 @@ function fmtDate(dataISO, hora) {
   return d.toLocaleDateString('pt-BR') + ' às ' + (hora || '').slice(0,5);
 }
 
-function buildOrderMessage(ev, paymentMethod) {
+function buildOrderMessage(ev, paymentMethod, nomeCompleto) {
   return [
     ORDER_MARKER,
+    `Nome: ${nomeCompleto}`,
     `Evento: ${ev.nome}`,
     `Data: ${fmtDate(ev.data, ev.hora)}`,
     `Valor: ${fmtBRL(ev.preco)}`,
     `Pagamento: ${paymentMethod}`,
   ].join('\n');
 }
-function openWhatsApp(ev, paymentMethod) {
-  const msg = buildOrderMessage(ev, paymentMethod);
+function openWhatsApp(ev, paymentMethod, nomeCompleto) {
+  const msg = buildOrderMessage(ev, paymentMethod, nomeCompleto);
   window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 
-let state = { events: [], loading: true, modalEvent: null };
+async function registrarMulher(nomeCompleto, telCliente) {
+  const { error } = await supabase.from('mv_mulheres').insert({ nome: nomeCompleto, tel: telCliente });
+  if (error && error.code !== '23505') { // 23505 = já cadastrada (nome duplicado) — segue normalmente
+    console.error('Erro ao cadastrar mulher:', error);
+  }
+}
+
+let state = { events: [], loading: true, modalEvent: null, modalError: '' };
+
+function isNomeValido(v) { return v.trim().split(/\s+/).length >= 2; }
+function isTelValido(v) { return v.replace(/\D/g, '').length >= 10; }
 
 async function loadEvents() {
   // A RLS já filtra: só retornam eventos com ativo_venda = true e status = 'aberto'
@@ -146,6 +157,15 @@ function renderModal(wrap) {
     <div class="modal-enter stub rounded-sm p-6 max-w-sm w-full">
       <div class="display text-white text-lg font-semibold mb-1">${ev.nome}</div>
       <div class="text-[#8fa9c4] text-sm mb-4">${fmtDate(ev.data, ev.hora)} · ${fmtBRL(ev.preco)}</div>
+
+      <label class="text-[#c5d5e5] text-xs tracking-wide block mb-1">NOME COMPLETO</label>
+      <input id="input-nome" type="text" placeholder="Seu nome completo" class="w-full bg-[#0E1A2B] border border-[#1F3A57] text-white text-sm px-3 py-2 rounded-sm mb-3">
+
+      <label class="text-[#c5d5e5] text-xs tracking-wide block mb-1">WHATSAPP</label>
+      <input id="input-tel" type="tel" placeholder="(71) 99999-9999" class="w-full bg-[#0E1A2B] border border-[#1F3A57] text-white text-sm px-3 py-2 rounded-sm mb-3">
+
+      <div id="modal-error" class="text-[#e05c5c] text-xs mb-2 min-h-[1em]">${state.modalError || ''}</div>
+
       <div class="text-[#c5d5e5] text-xs mb-2 tracking-wide">FORMA DE PAGAMENTO</div>
       <div class="flex gap-2 mb-5">
         <button data-method="Pix" class="pay-btn flex-1 border border-[#1F3A57] text-white text-sm py-2 rounded-sm hover:border-[#E7B10A]">Pix</button>
@@ -154,12 +174,21 @@ function renderModal(wrap) {
       <button id="close-modal" class="text-[#5b7a99] text-xs underline">cancelar</button>
     </div>`;
   wrap.appendChild(overlay);
-  overlay.querySelectorAll('.pay-btn').forEach(btn => btn.addEventListener('click', () => {
-    openWhatsApp(ev, btn.dataset.method);
+
+  overlay.querySelectorAll('.pay-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const nome = overlay.querySelector('#input-nome').value.trim();
+    const tel = overlay.querySelector('#input-tel').value.trim();
+    if (!isNomeValido(nome)) { state.modalError = 'Informe seu nome completo (nome e sobrenome).'; render(); return; }
+    if (!isTelValido(tel)) { state.modalError = 'Informe um WhatsApp válido, com DDD.'; render(); return; }
+    state.modalError = '';
+    btn.disabled = true;
+    btn.textContent = 'Aguarde...';
+    await registrarMulher(nome, tel);
+    openWhatsApp(ev, btn.dataset.method, nome);
     state.modalEvent = null;
     render();
   }));
-  overlay.querySelector('#close-modal').addEventListener('click', () => { state.modalEvent = null; render(); });
+  overlay.querySelector('#close-modal').addEventListener('click', () => { state.modalEvent = null; state.modalError = ''; render(); });
 }
 
 (async () => {
