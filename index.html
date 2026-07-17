@@ -70,7 +70,8 @@
   @keyframes modalIn { from { opacity:0; transform: scale(.97); } to { opacity:1; transform: scale(1); } }
   @media(max-width:520px){
     .card { flex-direction:column; }
-    .card-img, .card-img-placeholder { width:100%; height:140px; }
+    .card-img { width:100%; height:auto; max-height:340px; object-fit:contain; background:var(--cream-dim); }
+    .card-img-placeholder { width:100%; height:180px; }
     .perf { width:100%; height:4px; background-size:8px 8px; }
   }
 </style>
@@ -133,7 +134,11 @@ async function registrarMulher(nomeCompleto, telCliente) {
 function isNomeValido(v) { return v.trim().split(/\s+/).length >= 2; }
 function isTelValido(v) { return v.replace(/\D/g, '').length >= 10; }
 
-let state = { events: [], loading: true, modalEvent: null, modalError: '', progEvent: null, progItens: [], progLoading: false };
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+let state = { events: [], loading: true, modalEvent: null, modalError: '', progEvent: null, progItens: [], progLoading: false, detalhesEvent: null };
 
 async function loadEvents() {
   const { data, error } = await supabase.from('mv_eventos').select('*');
@@ -198,6 +203,7 @@ function render() {
           <div class="display" style="font-size:1.25rem;font-weight:500;color:var(--ink);">${ev.nome}</div>
           <div style="color:var(--olive);font-size:.85rem;margin-top:2px;">${fmtDate(ev.data, ev.hora)}</div>
           <button data-prog-id="${ev.id}" class="prog-btn text-xs mt-2 underline decoration-dotted" style="color:var(--olive);">Ver programação</button>
+          ${ev.detalhes ? `<button data-det-id="${ev.id}" class="det-btn text-xs mt-2 ml-3 underline decoration-dotted" style="color:var(--olive);">Detalhes</button>` : ''}
           <div class="flex items-center justify-between mt-4">
             <div class="font-bold" style="color:var(--sage-dark);font-size:1.15rem;">${fmtBRL(ev.preco)}</div>
             ${buyBtnHtml}
@@ -212,10 +218,30 @@ function render() {
     list.querySelectorAll('.prog-btn').forEach(btn => {
       btn.addEventListener('click', () => abrirProgramacao(state.events.find(e => e.id === btn.dataset.progId)));
     });
+    list.querySelectorAll('.det-btn').forEach(btn => {
+      btn.addEventListener('click', () => { state.detalhesEvent = state.events.find(e => e.id === btn.dataset.detId); render(); });
+    });
   }
 
   if (state.modalEvent) renderModal(wrap);
   if (state.progEvent) renderProgramacaoModal(wrap);
+  if (state.detalhesEvent) renderDetalhesModal(wrap);
+}
+
+function renderDetalhesModal(wrap) {
+  const ev = state.detalhesEvent;
+  const overlay = document.createElement('div');
+  overlay.className = 'fixed inset-0 flex items-center justify-center p-4 z-50';
+  overlay.style.background = 'rgba(58,60,44,0.55)';
+  overlay.innerHTML = `
+    <div class="modal-enter card p-6 max-w-sm w-full">
+      <div class="display" style="font-size:1.15rem;font-weight:500;color:var(--ink);">${ev.nome}</div>
+      <div style="color:var(--olive);font-size:.85rem;margin-bottom:14px;">${fmtDate(ev.data, ev.hora)}</div>
+      <div style="color:var(--ink);font-size:.9rem;white-space:pre-wrap;line-height:1.6;">${escapeHtml(ev.detalhes)}</div>
+      <button id="close-det-modal" class="text-xs underline mt-4" style="color:var(--olive);">fechar</button>
+    </div>`;
+  wrap.appendChild(overlay);
+  overlay.querySelector('#close-det-modal').addEventListener('click', () => { state.detalhesEvent = null; render(); });
 }
 
 async function abrirProgramacao(ev) {
