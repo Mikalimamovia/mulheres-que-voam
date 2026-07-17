@@ -234,7 +234,7 @@ function renderDetalhesModal(wrap) {
   overlay.className = 'fixed inset-0 flex items-center justify-center p-4 z-50';
   overlay.style.background = 'rgba(58,60,44,0.55)';
   overlay.innerHTML = `
-    <div class="modal-enter card p-6 max-w-sm w-full">
+    <div class="modal-enter card p-6 max-w-sm w-full" style="max-height:85vh;overflow-y:auto;">
       <div class="display" style="font-size:1.15rem;font-weight:500;color:var(--ink);">${ev.nome}</div>
       <div style="color:var(--olive);font-size:.85rem;margin-bottom:14px;">${fmtDate(ev.data, ev.hora)}</div>
       <div style="color:var(--ink);font-size:.9rem;white-space:pre-wrap;line-height:1.6;">${escapeHtml(ev.detalhes)}</div>
@@ -270,7 +270,7 @@ function renderProgramacaoModal(wrap) {
               <div class="text-sm" style="color:var(--ink);">${p.atividade}</div>
             </div>`).join(''));
   overlay.innerHTML = `
-    <div class="modal-enter card p-6 max-w-sm w-full">
+    <div class="modal-enter card p-6 max-w-sm w-full" style="max-height:85vh;overflow-y:auto;">
       <div class="display" style="font-size:1.15rem;font-weight:500;color:var(--ink);">${ev.nome}</div>
       <div style="color:var(--olive);font-size:.85rem;margin-bottom:14px;">${fmtDate(ev.data, ev.hora)}</div>
       <div class="mb-4">${itensHtml}</div>
@@ -286,7 +286,7 @@ function renderModal(wrap) {
   overlay.className = 'fixed inset-0 flex items-center justify-center p-4 z-50';
   overlay.style.background = 'rgba(58,60,44,0.55)';
   overlay.innerHTML = `
-    <div class="modal-enter card p-6 max-w-sm w-full">
+    <div class="modal-enter card p-6 max-w-sm w-full" style="max-height:85vh;overflow-y:auto;">
       <div class="display" style="font-size:1.15rem;font-weight:500;color:var(--ink);">${ev.nome}</div>
       <div style="color:var(--olive);font-size:.85rem;margin-bottom:16px;">${fmtDate(ev.data, ev.hora)} · ${fmtBRL(ev.preco)}</div>
 
