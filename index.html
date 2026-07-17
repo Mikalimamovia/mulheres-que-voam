@@ -78,9 +78,15 @@
 <body>
 <div id="root"></div>
 <script>
-window.addEventListener('error', function (e) {
+function mostrarErroFatal(msg) {
   var root = document.getElementById('root');
-  root.innerHTML = '<div style="color:#3a3c2c;background:#f7f5ee;font-family:sans-serif;padding:24px;white-space:pre-wrap;">⚠ Erro ao carregar:\n\n' + (e.message || e) + '</div>';
+  root.innerHTML = '<div style="color:#3a3c2c;background:#f7f5ee;font-family:sans-serif;padding:24px;white-space:pre-wrap;">⚠ Erro ao carregar:\n\n' + msg + '</div>';
+}
+window.addEventListener('error', function (e) {
+  mostrarErroFatal(e.message || e);
+});
+window.addEventListener('unhandledrejection', function (e) {
+  mostrarErroFatal((e.reason && (e.reason.message || JSON.stringify(e.reason))) || e.reason);
 });
 </script>
 <script type="module">
@@ -253,3 +259,54 @@ function renderModal(wrap) {
   const overlay = document.createElement('div');
   overlay.className = 'fixed inset-0 flex items-center justify-center p-4 z-50';
   overlay.style.background = 'rgba(58,60,44,0.55)';
+  overlay.innerHTML = `
+    <div class="modal-enter card p-6 max-w-sm w-full">
+      <div class="display" style="font-size:1.15rem;font-weight:500;color:var(--ink);">${ev.nome}</div>
+      <div style="color:var(--olive);font-size:.85rem;margin-bottom:16px;">${fmtDate(ev.data, ev.hora)} · ${fmtBRL(ev.preco)}</div>
+
+      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">Nome completo</label>
+      <input id="input-nome" type="text" placeholder="Seu nome completo" class="input-field mb-3">
+
+      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">WhatsApp</label>
+      <input id="input-tel" type="tel" placeholder="(71) 99999-9999" class="input-field mb-3">
+
+      <div style="color:var(--rose-dark);font-size:.78rem;min-height:1em;margin-bottom:8px;">${state.modalError || ''}</div>
+
+      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:8px;">Forma de pagamento</label>
+      <div class="flex gap-2 mb-5">
+        <button data-method="Pix" class="pay-btn btn-outline flex-1 py-2 rounded-lg text-sm font-medium">Pix</button>
+        <button data-method="Cartão de crédito" class="pay-btn btn-outline flex-1 py-2 rounded-lg text-sm font-medium">Cartão</button>
+      </div>
+      <button id="close-modal" class="text-xs underline" style="color:var(--olive);">cancelar</button>
+    </div>`;
+  wrap.appendChild(overlay);
+
+  overlay.querySelectorAll('.pay-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const nome = overlay.querySelector('#input-nome').value.trim();
+    const tel = overlay.querySelector('#input-tel').value.trim();
+    if (!isNomeValido(nome)) { state.modalError = 'Informe seu nome completo (nome e sobrenome).'; render(); return; }
+    if (!isTelValido(tel)) { state.modalError = 'Informe um WhatsApp válido, com DDD.'; render(); return; }
+    state.modalError = '';
+    btn.disabled = true;
+    btn.textContent = 'Aguarde...';
+    await registrarMulher(nome, tel);
+    openWhatsApp(ev, btn.dataset.method, nome);
+    state.modalEvent = null;
+    render();
+  }));
+  overlay.querySelector('#close-modal').addEventListener('click', () => { state.modalEvent = null; state.modalError = ''; render(); });
+}
+
+(async () => {
+  try {
+    state.events = await loadEvents();
+    state.loading = false;
+    render();
+  } catch (err) {
+    console.error(err);
+    root.innerHTML = '<div style="color:#3a3c2c;background:#f7f5ee;font-family:sans-serif;padding:24px;white-space:pre-wrap;">⚠ Erro ao carregar o catálogo:\n\n' + (err.message || err) + '</div>';
+  }
+})();
+</script>
+</body>
+</html>
