@@ -119,11 +119,6 @@ function buildOrderMessage(ev, paymentMethod, nomeCompleto) {
     `Pagamento: ${paymentMethod}`,
   ].join('\n');
 }
-function openWhatsApp(ev, paymentMethod, nomeCompleto) {
-  const msg = buildOrderMessage(ev, paymentMethod, nomeCompleto);
-  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`, '_blank');
-}
-
 async function registrarMulher(nomeCompleto, telCliente) {
   const { error } = await supabase.from('mv_mulheres').insert({ nome: nomeCompleto, tel: telCliente });
   if (error && error.code !== '23505') {
@@ -315,8 +310,21 @@ function renderModal(wrap) {
     state.modalError = '';
     btn.disabled = true;
     btn.textContent = 'Aguarde...';
+
+    // Abre a aba/janela JÁ no clique (antes de qualquer await), pra não ser bloqueada
+    // pelo navegador em celulares — o endereço é preenchido só depois.
+    const novaJanela = window.open('', '_blank');
+
     await registrarMulher(nome, tel);
-    openWhatsApp(ev, btn.dataset.method, nome);
+
+    const msg = buildOrderMessage(ev, btn.dataset.method, nome);
+    const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
+    if (novaJanela) {
+      novaJanela.location.href = url;
+    } else {
+      // fallback: se o navegador bloqueou mesmo assim, navega a própria aba
+      window.location.href = url;
+    }
     state.modalEvent = null;
     render();
   }));
