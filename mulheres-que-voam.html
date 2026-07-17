@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   :root{
     /* paleta extraída do banner "Mulheres que Voam" */
@@ -508,6 +509,53 @@
     return { recebido: recebido, custos: custos, saldo: recebido - custos, qtd: ev.participantes.length };
   }
 
+  function exportarConfirmadasPdf(ev, s){
+    if(ev.participantes.length === 0){ showToast('Não há mulheres confirmadas nesse evento ainda.'); return; }
+    var jsPDFLib = window.jspdf && window.jspdf.jsPDF;
+    if(!jsPDFLib){ showToast('Não foi possível carregar o gerador de PDF. Verifique sua conexão e tente de novo.'); return; }
+    var doc = new jsPDFLib();
+    var y = 20;
+
+    doc.setFontSize(16);
+    doc.text('Mulheres que Voam', 14, y);
+    y += 8;
+    doc.setFontSize(12);
+    doc.text(ev.nome, 14, y);
+    y += 7;
+    doc.setFontSize(10);
+    doc.text('Data: ' + fmtDate(ev.data) + ' às ' + ev.hora, 14, y);
+    y += 6;
+    doc.text('Confirmadas: ' + s.qtd + '   ·   Total recebido: ' + fmtMoney(s.recebido), 14, y);
+    y += 10;
+
+    doc.setFontSize(11);
+    doc.text('Nome', 14, y);
+    doc.text('Valor pago', 150, y);
+    y += 2;
+    doc.setLineWidth(0.3);
+    doc.line(14, y, 196, y);
+    y += 6;
+
+    doc.setFontSize(10);
+    var lista = ev.participantes.slice().sort(function(a,b){ return a.nome.localeCompare(b.nome,'pt-BR'); });
+    lista.forEach(function(p, idx){
+      if(y > 280){ doc.addPage(); y = 20; }
+      doc.text((idx+1) + '. ' + p.nome, 14, y);
+      doc.text(fmtMoney(p.valorPago), 150, y);
+      y += 7;
+    });
+
+    y += 4;
+    doc.setLineWidth(0.3);
+    doc.line(14, y, 196, y);
+    y += 7;
+    doc.setFontSize(11);
+    doc.text('Total: ' + fmtMoney(s.recebido), 14, y);
+
+    var nomeArquivo = 'confirmadas-' + ev.nome.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') + '.pdf';
+    doc.save(nomeArquivo);
+  }
+
   function showEventosLista(){
     eventoAtualId = null;
     document.getElementById('eventosListaWrap').style.display = '';
@@ -619,7 +667,10 @@
 
     // Participantes
     html += '<div class="panel">';
-    html += '<h3>Mulheres confirmadas</h3>';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">';
+    html += '<h3 style="margin:0;">Mulheres confirmadas</h3>';
+    html += '<button class="btn-ghost btn-sm" id="btnExportarPdf">⭳ Exportar PDF</button>';
+    html += '</div>';
     if(!readonly){
       var excludeIds = ev.participantes.map(function(p){ return p.mulherId; });
       html += '<div class="inline-form">';
@@ -666,6 +717,11 @@
 
     container.querySelector('[data-back]').addEventListener('click', function(){
       if(opts.backTo==='eventos') showEventosLista(); else showHistoricoLista();
+    });
+
+    var btnExportarPdf = container.querySelector('#btnExportarPdf');
+    if(btnExportarPdf) btnExportarPdf.addEventListener('click', function(){
+      exportarConfirmadasPdf(ev, s);
     });
 
     var finBtn = container.querySelector('[data-finalizar]');
