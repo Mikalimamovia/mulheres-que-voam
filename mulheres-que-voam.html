@@ -671,6 +671,7 @@
       html += '<span class="badge badge-open">Em andamento</span> ';
       html += '<button class="btn-gold btn-sm" data-finalizar="'+ev.id+'" style="margin-left:8px;">Finalizar evento</button>';
     }
+    html += '<button class="btn-rose btn-sm" data-excluir-evento="'+ev.id+'" style="margin-left:8px;">Excluir evento</button>';
     html += '</div></div>';
 
     html += '<div class="summary-grid">';
@@ -792,6 +793,19 @@
       showToast('Imagem atualizada.');
       renderEventoDetalhe(ev, container, opts);
       renderEventosGrid();
+    });
+
+    var excluirBtn = container.querySelector('[data-excluir-evento]');
+    if(excluirBtn) excluirBtn.addEventListener('click', async function(){
+      var aviso = 'Excluir "' + ev.nome + '" definitivamente? Isso remove também as ' +
+        ev.participantes.length + ' participante(s), ' + ev.custos.length + ' custo(s) e ' +
+        ev.programacao.length + ' item(ns) de programação ligados a esse evento. Essa ação não pode ser desfeita.';
+      if(!confirm(aviso)) return;
+      var { error } = await supabase.from('mv_eventos').delete().eq('id', ev.id);
+      if(error){ showToast('Erro ao excluir: ' + error.message); return; }
+      state.eventos = state.eventos.filter(function(e){ return e.id !== ev.id; });
+      showToast('Evento excluído.');
+      if(opts.backTo === 'eventos') showEventosLista(); else showHistoricoLista();
     });
 
     var finBtn = container.querySelector('[data-finalizar]');
