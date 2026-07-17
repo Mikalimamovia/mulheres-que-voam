@@ -107,10 +107,11 @@
   /* ---------- Forms ---------- */
   .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px;}
   label{display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);margin-bottom:5px;font-weight:600;}
-  input[type=text],input[type=date],input[type=time],input[type=number],input[type=email],input[type=password],select{
+  input[type=text],input[type=date],input[type=time],input[type=number],input[type=email],input[type=password],select,textarea{
     width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
     font-family:'Inter',sans-serif;font-size:.88rem;color:var(--ink);background:#fff;
   }
+  textarea{resize:vertical;min-height:80px;}
   input:focus,select:focus{outline:2px solid var(--gold);outline-offset:1px;}
 
   /* ---------- Tables ---------- */
@@ -317,6 +318,10 @@
               <label for="eImagem">Imagem do evento</label>
               <input type="file" id="eImagem" accept="image/*" style="display:block;">
             </div>
+          </div>
+          <div style="margin-bottom:14px;">
+            <label for="eDetalhes">Detalhes do evento (aparece no catálogo)</label>
+            <textarea id="eDetalhes" rows="4" placeholder="Conte mais sobre o evento — pode usar parágrafos e emojis 🦋"></textarea>
           </div>
           <div class="price-row" style="margin-bottom:14px;">
             <input type="checkbox" id="eAtivoVenda">
@@ -618,12 +623,13 @@
     var precoRaw = document.getElementById('ePreco').value;
     var preco = precoRaw === '' ? null : Number(precoRaw);
     var ativoVenda = document.getElementById('eAtivoVenda').checked;
+    var detalhes = document.getElementById('eDetalhes').value.trim();
     var arquivoImagem = document.getElementById('eImagem').files[0];
     if(!nome || !data || !hora) return;
     var form = this;
     var { data: row, error } = await supabase.from('mv_eventos').insert({
       nome: nome, data: data, hora: hora, status: 'aberto',
-      preco: preco, ativo_venda: ativoVenda, created_by: session.user.id
+      preco: preco, ativo_venda: ativoVenda, detalhes: detalhes || null, created_by: session.user.id
     }).select().single();
     if(error){ showToast('Erro ao criar evento: ' + error.message); return; }
     var imagemUrl = row.imagem_url;
@@ -635,6 +641,7 @@
     }
     var novo = { id: row.id, nome: row.nome, data: row.data, hora: row.hora, status: row.status,
       finalizadoEm: row.finalizado_em, preco: row.preco, ativoVenda: row.ativo_venda, imagemUrl: imagemUrl,
+      detalhes: row.detalhes,
       participantes: [], custos: [], programacao: [] };
     state.eventos.push(novo);
     form.reset();
@@ -693,6 +700,11 @@
       html += '<input type="file" id="eventoImagem" accept="image/*" style="display:block;max-width:220px;">';
       html += '<button class="btn-ghost btn-sm" id="btnSalvarImagem">Enviar</button>';
       if(ev.imagemUrl) html += '<img src="'+ev.imagemUrl+'" style="height:36px;border-radius:6px;">';
+      html += '</div>';
+      html += '<div style="margin-top:10px;">';
+      html += '<label style="margin:0;">Detalhes do evento (aparece no catálogo)</label>';
+      html += '<textarea id="eventoDetalhes" rows="4" placeholder="Conte mais sobre o evento — pode usar parágrafos e emojis 🦋">'+escapeHtml(ev.detalhes||'')+'</textarea>';
+      html += '<button class="btn-ghost btn-sm" id="btnSalvarDetalhes" style="margin-top:6px;">Salvar detalhes</button>';
       html += '</div>';
     }
     html += '</div>';
@@ -779,6 +791,15 @@
     var btnExportarPdf = container.querySelector('#btnExportarPdf');
     if(btnExportarPdf) btnExportarPdf.addEventListener('click', function(){
       exportarConfirmadasPdf(ev, s);
+    });
+
+    var btnSalvarDetalhes = container.querySelector('#btnSalvarDetalhes');
+    if(btnSalvarDetalhes) btnSalvarDetalhes.addEventListener('click', async function(){
+      var detalhes = container.querySelector('#eventoDetalhes').value.trim();
+      var { error } = await supabase.from('mv_eventos').update({ detalhes: detalhes || null }).eq('id', ev.id);
+      if(error){ showToast('Erro ao salvar detalhes: ' + error.message); return; }
+      ev.detalhes = detalhes;
+      showToast('Detalhes salvos.');
     });
 
     var btnSalvarImagem = container.querySelector('#btnSalvarImagem');
@@ -1108,7 +1129,7 @@
       return {
         id: ev.id, nome: ev.nome, data: ev.data, hora: (ev.hora||'').slice(0,5),
         status: ev.status, finalizadoEm: ev.finalizado_em, preco: ev.preco, ativoVenda: ev.ativo_venda,
-        imagemUrl: ev.imagem_url,
+        imagemUrl: ev.imagem_url, detalhes: ev.detalhes,
         participantes: participantesRes.data.filter(function(p){ return p.evento_id===ev.id; })
           .map(function(p){ return { id: p.id, mulherId: p.mulher_id, nome: p.nome, valorPago: p.valor_pago }; }),
         custos: custosRes.data.filter(function(c){ return c.evento_id===ev.id; })
