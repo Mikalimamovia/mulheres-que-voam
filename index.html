@@ -89,7 +89,7 @@ async function registrarMulher(nomeCompleto, telCliente) {
   }
 }
 
-let state = { events: [], loading: true, modalEvent: null, modalError: '' };
+let state = { events: [], loading: true, modalEvent: null, modalError: '', progEvent: null, progItens: [], progLoading: false };
 
 function isNomeValido(v) { return v.trim().split(/\s+/).length >= 2; }
 function isTelValido(v) { return v.replace(/\D/g, '').length >= 10; }
@@ -131,6 +131,7 @@ function render() {
           <div>
             <div class="display text-white text-xl md:text-2xl font-semibold">${ev.nome}</div>
             <div class="text-[#8fa9c4] text-sm mt-1">${fmtDate(ev.data, ev.hora)}</div>
+            <button data-prog-id="${ev.id}" class="prog-btn text-[#5b7a99] text-xs underline decoration-dotted mt-2 hover:text-[#8fa9c4]">Ver programação</button>
           </div>
           <div class="flex items-center gap-5">
             <div class="text-[#E7B10A] text-lg font-bold">${fmtBRL(ev.preco)}</div>
@@ -144,9 +145,48 @@ function render() {
     list.querySelectorAll('.buy-btn').forEach(btn => {
       btn.addEventListener('click', () => { state.modalEvent = state.events.find(e => e.id === btn.dataset.id); render(); });
     });
+    list.querySelectorAll('.prog-btn').forEach(btn => {
+      btn.addEventListener('click', () => abrirProgramacao(state.events.find(e => e.id === btn.dataset.progId)));
+    });
   }
 
   if (state.modalEvent) renderModal(wrap);
+  if (state.progEvent) renderProgramacaoModal(wrap);
+}
+
+async function abrirProgramacao(ev) {
+  state.progEvent = ev;
+  state.progLoading = true;
+  state.progItens = [];
+  render();
+  const { data, error } = await supabase.from('mv_programacao').select('*').eq('evento_id', ev.id).order('horario', { ascending: true });
+  state.progLoading = false;
+  state.progItens = error ? [] : data;
+  render();
+}
+
+function renderProgramacaoModal(wrap) {
+  const ev = state.progEvent;
+  const overlay = document.createElement('div');
+  overlay.className = 'fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50';
+  const itensHtml = state.progLoading
+    ? `<div class="text-[#5b7a99] text-sm">Carregando...</div>`
+    : (state.progItens.length === 0
+        ? `<div class="text-[#5b7a99] text-sm">Programação ainda não divulgada para este evento.</div>`
+        : state.progItens.map(p => `
+            <div class="flex gap-3 py-2 border-b border-[#1F3A57] last:border-0">
+              <div class="text-[#E7B10A] font-bold text-sm w-14 shrink-0">${(p.horario||'').slice(0,5)}</div>
+              <div class="text-white text-sm">${p.atividade}</div>
+            </div>`).join(''));
+  overlay.innerHTML = `
+    <div class="modal-enter stub rounded-sm p-6 max-w-sm w-full">
+      <div class="display text-white text-lg font-semibold mb-1">${ev.nome}</div>
+      <div class="text-[#8fa9c4] text-sm mb-4">${fmtDate(ev.data, ev.hora)}</div>
+      <div class="mb-4">${itensHtml}</div>
+      <button id="close-prog-modal" class="text-[#5b7a99] text-xs underline">fechar</button>
+    </div>`;
+  wrap.appendChild(overlay);
+  overlay.querySelector('#close-prog-modal').addEventListener('click', () => { state.progEvent = null; render(); });
 }
 
 function renderModal(wrap) {
