@@ -263,10 +263,6 @@
             <input type="text" id="mNome" required placeholder="Ex: Maria da Silva">
           </div>
           <div>
-            <label for="mCpf">CPF</label>
-            <input type="text" id="mCpf" required placeholder="000.000.000-00" maxlength="14">
-          </div>
-          <div>
             <label for="mTel">WhatsApp / Telefone</label>
             <input type="text" id="mTel" required placeholder="(00) 00000-0000" maxlength="15">
           </div>
@@ -278,11 +274,11 @@
     <div class="panel">
       <div class="row">
         <h2 style="margin:0;">Mulheres cadastradas</h2>
-        <input type="text" id="buscaMulher" placeholder="Buscar por nome ou CPF..." style="max-width:240px;">
+        <input type="text" id="buscaMulher" placeholder="Buscar por nome..." style="max-width:240px;">
       </div>
       <div class="table-wrap">
         <table id="tabelaMulheres">
-          <thead><tr><th>Nome completo</th><th>CPF</th><th>WhatsApp</th><th style="text-align:right;">Ações</th></tr></thead>
+          <thead><tr><th>Nome completo</th><th>WhatsApp</th><th style="text-align:right;">Ações</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -410,13 +406,6 @@
   var WA_ICON_SVG = '<svg viewBox="0 0 32 32" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M16 3C9.4 3 4 8.4 4 15c0 2.4.7 4.6 1.9 6.5L4 29l7.7-1.9C13.5 28 14.7 28.3 16 28.3c6.6 0 12-5.4 12-12S22.6 3 16 3zm6.9 17.1c-.3.8-1.6 1.5-2.3 1.6-.6.1-1.3.1-2.1-.1-.5-.1-1.1-.3-1.9-.7-3.3-1.4-5.5-4.7-5.6-4.9-.2-.2-1.3-1.7-1.3-3.3s.8-2.3 1.1-2.7c.3-.3.6-.4.8-.4h.6c.2 0 .5 0 .7.5.3.6.9 2.1 1 2.3.1.2.2.4 0 .6-.1.2-.2.4-.4.6-.2.2-.4.4-.6.6-.2.2-.4.4-.2.8.2.4 1 1.6 2.1 2.5 1.4 1.2 2.6 1.6 3 1.8.4.2.6.1.8-.1.3-.3.7-.9 1-1.3.2-.3.5-.4.8-.2.3.1 2 1 2.4 1.1.4.2.6.3.7.5.1.2.1.9-.2 1.7z"/></svg>';
 
   // ---------- Máscaras ----------
-  function maskCPF(v){
-    v = v.replace(/\D/g,'').slice(0,11);
-    if(v.length>9) v = v.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/, '$1.$2.$3-$4');
-    else if(v.length>6) v = v.replace(/(\d{3})(\d{3})(\d{1,3})/, '$1.$2.$3');
-    else if(v.length>3) v = v.replace(/(\d{3})(\d{1,3})/, '$1.$2');
-    return v;
-  }
   function maskTel(v){
     v = v.replace(/\D/g,'').slice(0,11);
     if(v.length>10) v = v.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
@@ -448,18 +437,17 @@
     if(filtro){
       filtro = filtro.toLowerCase();
       lista = lista.filter(function(m){
-        return m.nome.toLowerCase().indexOf(filtro)>-1 || m.cpf.indexOf(filtro)>-1;
+        return m.nome.toLowerCase().indexOf(filtro)>-1;
       });
     }
     if(lista.length===0){
-      tbody.innerHTML = '<tr><td colspan="4" class="empty">Nenhuma mulher cadastrada ainda.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="3" class="empty">Nenhuma mulher cadastrada ainda.</td></tr>';
       return;
     }
     tbody.innerHTML = lista.map(function(m){
       var link = waLink(m.tel);
       return '<tr>' +
         '<td>'+escapeHtml(m.nome)+'</td>' +
-        '<td>'+escapeHtml(m.cpf)+'</td>' +
         '<td>'+escapeHtml(m.tel)+'</td>' +
         '<td><div class="actions-cell">' +
           (link ? '<a class="btn-whatsapp icon-only" href="'+link+'" target="_blank" rel="noopener" title="Abrir WhatsApp">'+WA_ICON_SVG+'</a>' : '') +
@@ -472,23 +460,24 @@
   document.getElementById('formMulher').addEventListener('submit', async function(e){
     e.preventDefault();
     var nome = document.getElementById('mNome').value.trim();
-    var cpf = document.getElementById('mCpf').value.trim();
     var tel = document.getElementById('mTel').value.trim();
-    if(!nome || !cpf || !tel) return;
-    var dupCpf = state.mulheres.some(function(m){ return m.cpf === cpf; });
-    if(dupCpf){ showToast('Já existe uma mulher cadastrada com esse CPF.'); return; }
+    if(!nome || !tel) return;
+    var dupNome = state.mulheres.some(function(m){ return m.nome.toLowerCase() === nome.toLowerCase(); });
+    if(dupNome){ showToast('Já existe uma mulher cadastrada com esse nome completo.'); return; }
     var form = this;
     var { data: row, error } = await supabase.from('mv_mulheres').insert({
-      nome: nome, cpf: cpf, tel: tel, created_by: session.user.id
+      nome: nome, tel: tel, created_by: session.user.id
     }).select().single();
-    if(error){ showToast('Erro ao cadastrar: ' + error.message); return; }
-    state.mulheres.push({ id: row.id, nome: row.nome, cpf: row.cpf, tel: row.tel });
+    if(error){
+      if(error.code === '23505'){ showToast('Já existe uma mulher cadastrada com esse nome completo.'); return; }
+      showToast('Erro ao cadastrar: ' + error.message); return;
+    }
+    state.mulheres.push({ id: row.id, nome: row.nome, tel: row.tel });
     form.reset();
     renderMulheres(document.getElementById('buscaMulher').value);
     showToast('Mulher cadastrada com sucesso.');
   });
 
-  document.getElementById('mCpf').addEventListener('input', function(){ this.value = maskCPF(this.value); });
   document.getElementById('mTel').addEventListener('input', function(){ this.value = maskTel(this.value); });
 
   document.getElementById('buscaMulher').addEventListener('input', function(){ renderMulheres(this.value); });
@@ -858,9 +847,14 @@
         var mulherIdMap = {};
         for (var i=0;i<parsed.mulheres.length;i++){
           var m = parsed.mulheres[i];
-          var r1 = await supabase.from('mv_mulheres').insert({ nome: m.nome, cpf: m.cpf, tel: m.tel, created_by: session.user.id }).select().single();
-          if(r1.error) throw r1.error;
-          mulherIdMap[m.id] = r1.data.id;
+          var r1 = await supabase.from('mv_mulheres').insert({ nome: m.nome, tel: m.tel, created_by: session.user.id }).select().single();
+          if(r1.error && r1.error.code !== '23505') throw r1.error;
+          if(r1.data) {
+            mulherIdMap[m.id] = r1.data.id;
+          } else {
+            var existente = await supabase.from('mv_mulheres').select('id').ilike('nome', m.nome).maybeSingle();
+            if(existente.data) mulherIdMap[m.id] = existente.data.id;
+          }
         }
         for (var j=0;j<parsed.eventos.length;j++){
           var ev = parsed.eventos[j];
@@ -915,7 +909,7 @@
       showToast('Erro ao carregar dados. Recarregue a página.');
       return;
     }
-    state.mulheres = mulheresRes.data.map(function(m){ return { id: m.id, nome: m.nome, cpf: m.cpf, tel: m.tel }; });
+    state.mulheres = mulheresRes.data.map(function(m){ return { id: m.id, nome: m.nome, tel: m.tel }; });
     state.eventos = eventosRes.data.map(function(ev){
       return {
         id: ev.id, nome: ev.nome, data: ev.data, hora: (ev.hora||'').slice(0,5),
