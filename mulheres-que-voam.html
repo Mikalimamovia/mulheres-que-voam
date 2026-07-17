@@ -501,6 +501,7 @@
 
   // ---------- EVENTOS ----------
   var eventoAtualId = null;
+  var progEditandoId = null;
   var historicoAtualId = null;
 
   function eventoStats(ev){
@@ -610,7 +611,7 @@
     if(error){ showToast('Erro ao criar evento: ' + error.message); return; }
     var novo = { id: row.id, nome: row.nome, data: row.data, hora: row.hora, status: row.status,
       finalizadoEm: row.finalizado_em, preco: row.preco, ativoVenda: row.ativo_venda,
-      participantes: [], custos: [] };
+      participantes: [], custos: [], programacao: [] };
     state.eventos.push(novo);
     form.reset();
     renderEventosGrid();
@@ -708,6 +709,31 @@
       ev.custos.forEach(function(c){
         html += '<tr><td>'+escapeHtml(c.descricao)+'</td><td>'+fmtMoney(c.valor)+'</td>' +
           (readonly ? '' : '<td style="text-align:right;"><button class="btn-rose btn-sm" data-rm-custo="'+c.id+'">Remover</button></td>') +
+          '</tr>';
+      });
+    }
+    html += '</tbody></table></div></div>';
+
+    // Programação
+    html += '<div class="panel">';
+    html += '<h3>Programação</h3>';
+    if(!readonly){
+      html += '<div class="inline-form">';
+      html += '<div style="max-width:120px;"><label>Horário</label><input type="time" id="progHorario"></div>';
+      html += '<div><label>Atividade</label><input type="text" id="progAtividade" placeholder="Ex: Abertura e boas-vindas"></div>';
+      html += '<div style="flex:0;"><button class="btn-primary" id="btnAddProg">'+(progEditandoId?'Salvar edição':'+ Adicionar')+'</button></div>';
+      html += '</div>';
+    }
+    html += '<div class="table-wrap"><table><thead><tr><th style="width:90px;">Horário</th><th>Atividade</th>'+(readonly?'':'<th></th>')+'</tr></thead><tbody>';
+    var progOrdenada = ev.programacao.slice().sort(function(a,b){ return a.horario.localeCompare(b.horario); });
+    if(progOrdenada.length===0){
+      html += '<tr><td colspan="3" class="empty">Nenhum item de programação ainda.</td></tr>';
+    } else {
+      progOrdenada.forEach(function(p){
+        html += '<tr><td>'+escapeHtml(p.horario)+'</td><td>'+escapeHtml(p.atividade)+'</td>' +
+          (readonly ? '' : '<td style="text-align:right;"><div class="actions-cell" style="justify-content:flex-end;">' +
+            '<button class="btn-ghost btn-sm" data-edit-prog="'+p.id+'">Editar</button>' +
+            '<button class="btn-rose btn-sm" data-rm-prog="'+p.id+'">Remover</button></div></td>') +
           '</tr>';
       });
     }
@@ -814,12 +840,57 @@
         renderEventosGrid();
       });
     });
+
+    var addProg = container.querySelector('#btnAddProg');
+    if(addProg) addProg.addEventListener('click', async function(){
+      var horario = container.querySelector('#progHorario').value;
+      var atividade = container.querySelector('#progAtividade').value.trim();
+      if(!horario || !atividade){ showToast('Preencha horário e atividade.'); return; }
+      if(progEditandoId){
+        var { error } = await supabase.from('mv_programacao').update({ horario: horario, atividade: atividade }).eq('id', progEditandoId);
+        if(error){ showToast('Erro ao salvar: ' + error.message); return; }
+        var item = ev.programacao.find(function(p){ return p.id===progEditandoId; });
+        item.horario = horario; item.atividade = atividade;
+        progEditandoId = null;
+      } else {
+        var { data: row, error } = await supabase.from('mv_programacao').insert({
+          evento_id: ev.id, horario: horario, atividade: atividade
+        }).select().single();
+        if(error){ showToast('Erro ao adicionar: ' + error.message); return; }
+        ev.programacao.push({ id: row.id, horario: row.horario.slice(0,5), atividade: row.atividade });
+      }
+      renderEventoDetalhe(ev, container, opts);
+    });
+
+    container.querySelectorAll('[data-edit-prog]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        progEditandoId = btn.dataset.editProg;
+        renderEventoDetalhe(ev, container, opts);
+        var item = ev.programacao.find(function(p){ return p.id===progEditandoId; });
+        if(item){
+          container.querySelector('#progHorario').value = item.horario;
+          container.querySelector('#progAtividade').value = item.atividade;
+        }
+      });
+    });
+
+    container.querySelectorAll('[data-rm-prog]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var progId = btn.dataset.rmProg;
+        var { error } = await supabase.from('mv_programacao').delete().eq('id', progId);
+        if(error){ showToast('Erro ao remover: ' + error.message); return; }
+        ev.programacao = ev.programacao.filter(function(p){ return p.id!==progId; });
+        if(progEditandoId === progId) progEditandoId = null;
+        renderEventoDetalhe(ev, container, opts);
+      });
+    });
   }
 
   function openEventoDetalhe(id){
     var ev = state.eventos.find(function(e){ return e.id===id; });
     if(!ev) return;
     eventoAtualId = id;
+    progEditandoId = null;
     document.getElementById('eventosListaWrap').style.display = 'none';
     var wrap = document.getElementById('eventoDetalheWrap');
     wrap.style.display = '';
@@ -938,6 +1009,14 @@
             });
             if(r4.error) throw r4.error;
           }
+          var programacao = ev.programacao || [];
+          for (var m2=0;m2<programacao.length;m2++){
+            var pr = programacao[m2];
+            var r5 = await supabase.from('mv_programacao').insert({
+              evento_id: r2.data.id, horario: pr.horario, atividade: pr.atividade
+            });
+            if(r5.error) throw r5.error;
+          }
         }
         await loadAllData();
         renderMulheres('');
@@ -960,8 +1039,9 @@
     var eventosRes = await supabase.from('mv_eventos').select('*').order('data', { ascending: true });
     var participantesRes = await supabase.from('mv_participantes').select('*');
     var custosRes = await supabase.from('mv_custos').select('*');
-    if(mulheresRes.error || eventosRes.error || participantesRes.error || custosRes.error){
-      console.error(mulheresRes.error, eventosRes.error, participantesRes.error, custosRes.error);
+    var programacaoRes = await supabase.from('mv_programacao').select('*');
+    if(mulheresRes.error || eventosRes.error || participantesRes.error || custosRes.error || programacaoRes.error){
+      console.error(mulheresRes.error, eventosRes.error, participantesRes.error, custosRes.error, programacaoRes.error);
       showToast('Erro ao carregar dados. Recarregue a página.');
       return;
     }
@@ -973,7 +1053,9 @@
         participantes: participantesRes.data.filter(function(p){ return p.evento_id===ev.id; })
           .map(function(p){ return { id: p.id, mulherId: p.mulher_id, nome: p.nome, valorPago: p.valor_pago }; }),
         custos: custosRes.data.filter(function(c){ return c.evento_id===ev.id; })
-          .map(function(c){ return { id: c.id, descricao: c.descricao, valor: c.valor }; })
+          .map(function(c){ return { id: c.id, descricao: c.descricao, valor: c.valor }; }),
+        programacao: programacaoRes.data.filter(function(p){ return p.evento_id===ev.id; })
+          .map(function(p){ return { id: p.id, horario: (p.horario||'').slice(0,5), atividade: p.atividade }; })
       };
     });
   }
