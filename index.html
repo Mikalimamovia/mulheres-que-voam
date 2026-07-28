@@ -119,8 +119,15 @@ function buildOrderMessage(ev, paymentMethod, nomeCompleto) {
     `Pagamento: ${paymentMethod}`,
   ].join('\n');
 }
-async function registrarMulher(nomeCompleto, telCliente) {
-  const { error } = await supabase.from('mv_mulheres').insert({ nome: nomeCompleto, tel: telCliente });
+async function registrarMulher(nomeCompleto, telCliente, cpfCliente, nascCliente) {
+  const { error } = await supabase.from('mv_mulheres').insert({
+    nome: nomeCompleto,
+    tel: telCliente,
+    cpf: cpfCliente,
+    data_nascimento: nascCliente,
+    consentimento_marketing: true,
+    consentimento_data: new Date().toISOString()
+  });
   if (error && error.code !== '23505') {
     console.error('Erro ao cadastrar mulher:', error);
   }
@@ -128,6 +135,14 @@ async function registrarMulher(nomeCompleto, telCliente) {
 
 function isNomeValido(v) { return v.trim().split(/\s+/).length >= 2; }
 function isTelValido(v) { return v.replace(/\D/g, '').length >= 10; }
+function isCpfValido(v) { return v.replace(/\D/g, '').length === 11; }
+function maskCPF(v) {
+  v = v.replace(/\D/g, '').slice(0, 11);
+  if (v.length > 9) v = v.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/, '$1.$2.$3-$4');
+  else if (v.length > 6) v = v.replace(/(\d{3})(\d{3})(\d{1,3})/, '$1.$2.$3');
+  else if (v.length > 3) v = v.replace(/(\d{3})(\d{1,3})/, '$1.$2');
+  return v;
+}
 
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -291,7 +306,22 @@ function renderModal(wrap) {
       <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">WhatsApp</label>
       <input id="input-tel" type="tel" placeholder="(71) 99999-9999" class="input-field mb-3">
 
+      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">CPF</label>
+      <input id="input-cpf" type="text" placeholder="000.000.000-00" maxlength="14" class="input-field mb-3">
+
+      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">Data de nascimento</label>
+      <input id="input-nasc" type="date" class="input-field mb-3">
+
       <div style="color:var(--rose-dark);font-size:.78rem;min-height:1em;margin-bottom:8px;">${state.modalError || ''}</div>
+
+      <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:14px;">
+        <input id="input-consentimento" type="checkbox" style="margin-top:3px;">
+        <label for="input-consentimento" style="font-size:.78rem;color:var(--ink);font-weight:400;">
+          Autorizo o uso dos meus dados (nome, CPF, data de nascimento e WhatsApp) para
+          confirmar minha presença neste evento e para receber comunicações sobre futuros
+          eventos e campanhas do Mulheres que Voam.
+        </label>
+      </div>
 
       <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:8px;">Forma de pagamento</label>
       <div class="flex gap-2 mb-5">
@@ -302,11 +332,19 @@ function renderModal(wrap) {
     </div>`;
   wrap.appendChild(overlay);
 
+  overlay.querySelector('#input-cpf').addEventListener('input', (e) => { e.target.value = maskCPF(e.target.value); });
+
   overlay.querySelectorAll('.pay-btn').forEach(btn => btn.addEventListener('click', async () => {
     const nome = overlay.querySelector('#input-nome').value.trim();
     const tel = overlay.querySelector('#input-tel').value.trim();
+    const cpf = overlay.querySelector('#input-cpf').value.trim();
+    const nasc = overlay.querySelector('#input-nasc').value;
+    const consentiu = overlay.querySelector('#input-consentimento').checked;
     if (!isNomeValido(nome)) { state.modalError = 'Informe seu nome completo (nome e sobrenome).'; render(); return; }
     if (!isTelValido(tel)) { state.modalError = 'Informe um WhatsApp válido, com DDD.'; render(); return; }
+    if (!isCpfValido(cpf)) { state.modalError = 'Informe um CPF válido.'; render(); return; }
+    if (!nasc) { state.modalError = 'Informe sua data de nascimento.'; render(); return; }
+    if (!consentiu) { state.modalError = 'É preciso autorizar o uso dos dados para continuar.'; render(); return; }
     state.modalError = '';
     btn.disabled = true;
     btn.textContent = 'Aguarde...';
@@ -315,7 +353,7 @@ function renderModal(wrap) {
     // pelo navegador em celulares — o endereço é preenchido só depois.
     const novaJanela = window.open('', '_blank');
 
-    await registrarMulher(nome, tel);
+    await registrarMulher(nome, tel, cpf, nasc);
 
     const msg = buildOrderMessage(ev, btn.dataset.method, nome);
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
