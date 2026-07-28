@@ -272,6 +272,22 @@
             <label for="mTel">WhatsApp / Telefone</label>
             <input type="text" id="mTel" required placeholder="(00) 00000-0000" maxlength="15">
           </div>
+          <div>
+            <label for="mCpf">CPF</label>
+            <input type="text" id="mCpf" required placeholder="000.000.000-00" maxlength="14">
+          </div>
+          <div>
+            <label for="mNasc">Data de nascimento</label>
+            <input type="date" id="mNasc" required>
+          </div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:8px;margin:10px 0 14px;">
+          <input type="checkbox" id="mConsentimento" required style="margin-top:3px;">
+          <label for="mConsentimento" style="text-transform:none;font-weight:400;font-size:.82rem;">
+            Confirmo que esta mulher autorizou o uso de seus dados (nome, CPF, data de
+            nascimento e WhatsApp) para confirmar presença em eventos e para receber
+            comunicações sobre futuros eventos e campanhas do Mulheres que Voam.
+          </label>
         </div>
         <button type="submit" class="btn-primary">+ Cadastrar mulher</button>
       </form>
@@ -280,11 +296,11 @@
     <div class="panel">
       <div class="row">
         <h2 style="margin:0;">Mulheres cadastradas</h2>
-        <input type="text" id="buscaMulher" placeholder="Buscar por nome..." style="max-width:240px;">
+        <input type="text" id="buscaMulher" placeholder="Buscar por nome ou CPF..." style="max-width:240px;">
       </div>
       <div class="table-wrap">
         <table id="tabelaMulheres">
-          <thead><tr><th>Nome completo</th><th>WhatsApp</th><th style="text-align:right;">Ações</th></tr></thead>
+          <thead><tr><th>Nome completo</th><th>CPF</th><th>Data de nascimento</th><th>WhatsApp</th><th style="text-align:right;">Ações</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -428,6 +444,14 @@
     return v;
   }
 
+  function maskCPF(v){
+    v = v.replace(/\D/g,'').slice(0,11);
+    if(v.length>9) v = v.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/, '$1.$2.$3-$4');
+    else if(v.length>6) v = v.replace(/(\d{3})(\d{3})(\d{1,3})/, '$1.$2.$3');
+    else if(v.length>3) v = v.replace(/(\d{3})(\d{1,3})/, '$1.$2');
+    return v;
+  }
+
   // ---------- Navegação por abas ----------
   function switchView(name){
     document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
@@ -450,17 +474,19 @@
     if(filtro){
       filtro = filtro.toLowerCase();
       lista = lista.filter(function(m){
-        return m.nome.toLowerCase().indexOf(filtro)>-1;
+        return m.nome.toLowerCase().indexOf(filtro)>-1 || (m.cpf||'').indexOf(filtro)>-1;
       });
     }
     if(lista.length===0){
-      tbody.innerHTML = '<tr><td colspan="3" class="empty">Nenhuma mulher cadastrada ainda.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">Nenhuma mulher cadastrada ainda.</td></tr>';
       return;
     }
     tbody.innerHTML = lista.map(function(m){
       var link = waLink(m.tel);
       return '<tr>' +
         '<td>'+escapeHtml(m.nome)+'</td>' +
+        '<td>'+escapeHtml(m.cpf||'—')+'</td>' +
+        '<td>'+(m.data_nascimento ? fmtDate(m.data_nascimento) : '—')+'</td>' +
         '<td>'+escapeHtml(m.tel)+'</td>' +
         '<td><div class="actions-cell">' +
           (link ? '<a class="btn-whatsapp icon-only" href="'+link+'" target="_blank" rel="noopener" title="Abrir WhatsApp">'+WA_ICON_SVG+'</a>' : '') +
@@ -474,24 +500,31 @@
     e.preventDefault();
     var nome = document.getElementById('mNome').value.trim();
     var tel = document.getElementById('mTel').value.trim();
-    if(!nome || !tel) return;
+    var cpf = document.getElementById('mCpf').value.trim();
+    var nascimento = document.getElementById('mNasc').value;
+    var consentimento = document.getElementById('mConsentimento').checked;
+    if(!nome || !tel || !cpf || !nascimento) return;
+    if(!consentimento){ showToast('É necessário confirmar o consentimento para cadastrar.'); return; }
     var dupNome = state.mulheres.some(function(m){ return m.nome.toLowerCase() === nome.toLowerCase(); });
     if(dupNome){ showToast('Já existe uma mulher cadastrada com esse nome completo.'); return; }
     var form = this;
     var { data: row, error } = await supabase.from('mv_mulheres').insert({
-      nome: nome, tel: tel, created_by: session.user.id
+      nome: nome, tel: tel, cpf: cpf, data_nascimento: nascimento,
+      consentimento_marketing: true, consentimento_data: new Date().toISOString(),
+      created_by: session.user.id
     }).select().single();
     if(error){
-      if(error.code === '23505'){ showToast('Já existe uma mulher cadastrada com esse nome completo.'); return; }
+      if(error.code === '23505'){ showToast('Já existe uma mulher cadastrada com esse nome ou CPF.'); return; }
       showToast('Erro ao cadastrar: ' + error.message); return;
     }
-    state.mulheres.push({ id: row.id, nome: row.nome, tel: row.tel });
+    state.mulheres.push({ id: row.id, nome: row.nome, tel: row.tel, cpf: row.cpf, data_nascimento: row.data_nascimento });
     form.reset();
     renderMulheres(document.getElementById('buscaMulher').value);
     showToast('Mulher cadastrada com sucesso.');
   });
 
   document.getElementById('mTel').addEventListener('input', function(){ this.value = maskTel(this.value); });
+  document.getElementById('mCpf').addEventListener('input', function(){ this.value = maskCPF(this.value); });
 
   document.getElementById('buscaMulher').addEventListener('input', function(){ renderMulheres(this.value); });
 
@@ -1053,7 +1086,12 @@
         var mulherIdMap = {};
         for (var i=0;i<parsed.mulheres.length;i++){
           var m = parsed.mulheres[i];
-          var r1 = await supabase.from('mv_mulheres').insert({ nome: m.nome, tel: m.tel, created_by: session.user.id }).select().single();
+          var r1 = await supabase.from('mv_mulheres').insert({
+            nome: m.nome, tel: m.tel, cpf: m.cpf || null, data_nascimento: m.data_nascimento || null,
+            consentimento_marketing: !!m.consentimento_marketing,
+            consentimento_data: m.consentimento_data || null,
+            created_by: session.user.id
+          }).select().single();
           if(r1.error && r1.error.code !== '23505') throw r1.error;
           if(r1.data) {
             mulherIdMap[m.id] = r1.data.id;
@@ -1124,7 +1162,7 @@
       showToast('Erro ao carregar dados. Recarregue a página.');
       return;
     }
-    state.mulheres = mulheresRes.data.map(function(m){ return { id: m.id, nome: m.nome, tel: m.tel }; });
+    state.mulheres = mulheresRes.data.map(function(m){ return { id: m.id, nome: m.nome, tel: m.tel, cpf: m.cpf, data_nascimento: m.data_nascimento }; });
     state.eventos = eventosRes.data.map(function(ev){
       return {
         id: ev.id, nome: ev.nome, data: ev.data, hora: (ev.hora||'').slice(0,5),
