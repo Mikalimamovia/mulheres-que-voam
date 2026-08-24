@@ -41,12 +41,14 @@
   .card::before { left:-11px; }
   .card::after { right:-11px; }
   .card.is-finalizado { filter:grayscale(1); }
+  .card.is-pausado { opacity:.72; }
   .ribbon {
     position:absolute; top:16px; left:-34px; width:160px; text-align:center;
     background:var(--rose-dark); color:#fff; font-size:.68rem; font-weight:700;
     letter-spacing:.06em; text-transform:uppercase; padding:5px 0; transform:rotate(-40deg);
     box-shadow:0 2px 6px rgba(0,0,0,.25); z-index:3;
   }
+  .ribbon.ribbon-pausado { background:var(--gold); }
   .card-img { width:150px; flex-shrink:0; object-fit:cover; display:block; background:var(--cream-dim); }
   .card-img-placeholder {
     width:150px; flex-shrink:0; display:flex; align-items:center; justify-content:center;
@@ -111,14 +113,28 @@
   .qty-stepper button:active { background:var(--olive-soft); color:#fff; }
   .qty-stepper span { width:28px; text-align:center; font-size:.88rem; font-weight:600; }
 
-  .cart-fab {
-    position:fixed; bottom:20px; right:20px; z-index:45; display:flex; align-items:center; gap:9px;
-    padding:14px 20px; border-radius:999px; box-shadow:0 10px 30px rgba(63,66,44,.35);
-    background:linear-gradient(135deg, var(--olive-deep), #4a4e37); color:var(--cream); font-weight:600; font-size:.9rem; border:none;
-    transition:transform .15s ease, box-shadow .15s ease;
+  /* ---------- Carrinho flutuante (drawer) ---------- */
+  .cart-drawer {
+    position:fixed; z-index:46; right:20px; bottom:20px; width:380px; max-width:calc(100vw - 28px);
+    background:#fff; border-radius:18px; box-shadow:0 16px 42px rgba(63,66,44,.30); border:1px solid var(--line);
+    overflow:hidden; display:flex; flex-direction:column;
   }
-  .cart-fab:hover { transform:translateY(-2px) scale(1.02); box-shadow:0 14px 34px rgba(63,66,44,.4); }
-  .cart-fab .badge { background:var(--rose); color:#fff; border-radius:999px; min-width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; font-size:.72rem; font-weight:700; padding:0 5px; }
+  .cart-drawer-header {
+    display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 18px; cursor:pointer;
+    background:linear-gradient(135deg, var(--olive-deep), #4a4e37); color:var(--cream); border:none; width:100%;
+    font-weight:600; font-size:.9rem; transition:filter .15s ease;
+  }
+  .cart-drawer-header:hover { filter:brightness(1.08); }
+  .cart-drawer-header .badge { background:var(--rose); color:#fff; border-radius:999px; min-width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; font-size:.72rem; font-weight:700; padding:0 5px; }
+  .cart-drawer-chevron { transition:transform .25s ease; display:inline-block; font-size:.8rem; }
+  .cart-drawer.expanded .cart-drawer-chevron { transform:rotate(180deg); }
+  .cart-drawer-body { max-height:min(62vh, 520px); overflow-y:auto; padding:16px 18px; display:none; }
+  .cart-drawer.expanded .cart-drawer-body { display:block; animation:fade .2s ease; }
+  @keyframes fade { from{opacity:0;} to{opacity:1;} }
+  @media(max-width:640px){
+    .cart-drawer { left:12px; right:12px; width:auto; bottom:12px; }
+    .cart-drawer-body { max-height:64vh; }
+  }
 
   /* ---------- Lightbox / zoom ---------- */
   .lightbox-overlay { position:fixed; inset:0; background:rgba(20,21,14,.92); z-index:80; display:flex; align-items:center; justify-content:center; }
@@ -146,7 +162,6 @@
     .tab-btn { padding:13px 8px; font-size:.85rem; }
   }
   @media(max-width:480px){
-    .cart-fab { right:14px; bottom:14px; padding:12px 16px; font-size:.85rem; }
     .produto-zoom-btn, .produto-nav-btn { width:26px; height:26px; }
   }
   @media (hover: none) {
@@ -276,7 +291,8 @@ function escapeHtml(s) {
 let state = {
   events: [], loading: true, modalEvent: null, modalError: '', progEvent: null, progItens: [], progLoading: false, detalhesEvent: null,
   tab: 'eventos', produtos: [], produtosLoading: true,
-  cart: [], cartOpen: false, checkoutError: '', lightbox: null
+  cart: [], cartExpanded: false, checkoutError: '', lightbox: null,
+  checkoutForm: { nome: '', tel: '', cpf: '', nasc: '', consentimento: false }
 };
 
 async function loadProdutos() {
@@ -411,15 +427,20 @@ function render() {
     }
     state.events.forEach(ev => {
       const finalizado = ev.status !== 'aberto';
+      const vendaPausada = !finalizado && ev.ativo_venda === false;
       const card = document.createElement('div');
-      card.className = 'card flex' + (finalizado ? ' is-finalizado' : '');
+      card.className = 'card flex' + (finalizado ? ' is-finalizado' : '') + (vendaPausada ? ' is-pausado' : '');
       const imgHtml = ev.imagem_url
         ? `<img src="${ev.imagem_url}" class="card-img" alt="${ev.nome}">`
         : `<div class="card-img-placeholder"><img src="data:image/png;base64,${LOGO_ICON_B64}" style="width:60px;opacity:.35;"></div>`;
-      const ribbonHtml = finalizado ? `<div class="ribbon">Evento encerrado</div>` : '';
+      const ribbonHtml = finalizado
+        ? `<div class="ribbon">Evento encerrado</div>`
+        : (vendaPausada ? `<div class="ribbon ribbon-pausado">Vendas pausadas</div>` : '');
       const buyBtnHtml = finalizado
         ? `<button class="btn-disabled px-5 py-2.5 rounded-lg font-semibold text-sm" disabled>Encerrado</button>`
-        : `<button data-id="${ev.id}" class="buy-btn btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm">Comprar ingresso</button>`;
+        : (vendaPausada
+          ? `<button class="btn-disabled px-5 py-2.5 rounded-lg font-semibold text-sm" disabled>Vendas pausadas</button>`
+          : `<button data-id="${ev.id}" class="buy-btn btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm">Comprar ingresso</button>`);
       card.innerHTML = `
         ${ribbonHtml}
         ${imgHtml}
@@ -450,18 +471,11 @@ function render() {
 
   if (state.tab === 'produtos') renderProdutosGrid(wrap);
 
-  if (state.cart.length > 0) {
-    const fab = document.createElement('button');
-    fab.className = 'cart-fab';
-    fab.innerHTML = `🛍️ Carrinho <span class="badge">${cartCount()}</span> · ${fmtBRL(cartTotal())}`;
-    fab.addEventListener('click', () => { state.cartOpen = true; render(); });
-    root.appendChild(fab);
-  }
+  if (state.cart.length > 0) renderCartDrawer(wrap);
 
   if (state.modalEvent) renderModal(wrap);
   if (state.progEvent) renderProgramacaoModal(wrap);
   if (state.detalhesEvent) renderDetalhesModal(wrap);
-  if (state.cartOpen) renderCartModal(wrap);
   if (state.lightbox) renderLightbox(wrap);
 }
 
@@ -754,56 +768,59 @@ function renderModal(wrap) {
   overlay.querySelector('#close-modal').addEventListener('click', () => { state.modalEvent = null; state.modalError = ''; render(); });
 }
 
-function renderCartModal(wrap) {
-  const overlay = document.createElement('div');
-  overlay.className = 'fixed inset-0 flex items-center justify-center p-4 z-50';
-  overlay.style.background = 'rgba(58,60,44,0.55)';
+function renderCartDrawer(wrap) {
+  const drawer = document.createElement('div');
+  drawer.className = 'cart-drawer' + (state.cartExpanded ? ' expanded' : '');
 
-  const itensHtml = state.cart.length === 0
-    ? `<div style="color:var(--olive);font-size:.85rem;padding:20px 0;text-align:center;">🛍️ Seu carrinho está vazio.</div>`
-    : state.cart.map(it => `
-        <div class="flex items-center justify-between gap-2" style="padding:10px; margin-bottom:8px; background:var(--cream); border-radius:12px;">
-          <div class="flex-1">
-            <div style="font-size:.88rem;font-weight:600;color:var(--ink);">${escapeHtml(it.produtoNome)}${it.variacaoNome ? ' <span style="color:var(--olive);font-weight:400;">(' + escapeHtml(it.variacaoNome) + ')</span>' : ''}</div>
-            <div style="font-size:.78rem;color:var(--olive);">${fmtBRL(it.preco)} cada</div>
-          </div>
-          <div class="qty-stepper" data-key="${it.key}">
-            <button type="button" class="cart-qty-menos">−</button>
-            <span class="qty-valor">${it.quantidade}</span>
-            <button type="button" class="cart-qty-mais">+</button>
-          </div>
-          <div style="font-weight:700;font-size:.85rem;min-width:64px;text-align:right;color:var(--sage-dark);">${fmtBRL(it.preco * it.quantidade)}</div>
-          <button class="cart-remove" data-key="${it.key}" style="color:var(--rose-dark);width:26px;height:26px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:.75rem;flex-shrink:0;">✕</button>
-        </div>
-      `).join('');
+  const itensHtml = state.cart.map(it => `
+    <div class="flex items-center justify-between gap-2" style="padding:10px; margin-bottom:8px; background:var(--cream); border-radius:12px;">
+      <div class="flex-1">
+        <div style="font-size:.88rem;font-weight:600;color:var(--ink);">${escapeHtml(it.produtoNome)}${it.variacaoNome ? ' <span style="color:var(--olive);font-weight:400;">(' + escapeHtml(it.variacaoNome) + ')</span>' : ''}</div>
+        <div style="font-size:.78rem;color:var(--olive);">${fmtBRL(it.preco)} cada</div>
+      </div>
+      <div class="qty-stepper" data-key="${it.key}">
+        <button type="button" class="cart-qty-menos">−</button>
+        <span class="qty-valor">${it.quantidade}</span>
+        <button type="button" class="cart-qty-mais">+</button>
+      </div>
+      <div style="font-weight:700;font-size:.85rem;min-width:64px;text-align:right;color:var(--sage-dark);">${fmtBRL(it.preco * it.quantidade)}</div>
+      <button class="cart-remove" data-key="${it.key}" style="color:var(--rose-dark);width:26px;height:26px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:.75rem;flex-shrink:0;">✕</button>
+    </div>
+  `).join('');
 
-  overlay.innerHTML = `
-    <div class="modal-enter card p-6 max-w-sm w-full" style="max-height:90vh;overflow-y:auto;">
-      <div class="display flex items-center gap-2" style="font-size:1.15rem;font-weight:500;color:var(--ink);margin-bottom:12px;">🛍️ Meu carrinho</div>
+  const cf = state.checkoutForm;
+  drawer.innerHTML = `
+    <button type="button" class="cart-drawer-header">
+      <span>🛍️ Carrinho <span class="badge">${cartCount()}</span></span>
+      <span style="display:flex;align-items:center;gap:8px;">
+        ${fmtBRL(cartTotal())}
+        <span class="cart-drawer-chevron">▲</span>
+      </span>
+    </button>
+    <div class="cart-drawer-body">
       <div id="cart-itens">${itensHtml}</div>
 
-      ${state.cart.length > 0 ? `
-      <div class="flex items-center justify-between mt-3 mb-4">
+      <div class="flex items-center justify-between mt-1 mb-4">
         <div style="font-size:.9rem;color:var(--olive);">Total</div>
         <div style="font-weight:700;font-size:1.15rem;color:var(--sage-dark);">${fmtBRL(cartTotal())}</div>
       </div>
 
       <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">Nome completo</label>
-      <input id="cart-nome" type="text" placeholder="Seu nome completo" class="input-field mb-3">
+      <input id="cart-nome" type="text" placeholder="Seu nome completo" class="input-field mb-3" value="${escapeHtml(cf.nome)}">
 
       <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">WhatsApp</label>
-      <input id="cart-tel" type="tel" placeholder="(71) 99999-9999" class="input-field mb-3">
+      <input id="cart-tel" type="tel" placeholder="(71) 99999-9999" class="input-field mb-3" value="${escapeHtml(cf.tel)}">
 
       <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">CPF</label>
-      <input id="cart-cpf" type="text" placeholder="000.000.000-00" maxlength="14" class="input-field mb-3">
+      <input id="cart-cpf" type="text" placeholder="000.000.000-00" maxlength="14" class="input-field mb-3" value="${escapeHtml(cf.cpf)}">
 
       <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">Data de nascimento</label>
-      <input id="cart-nasc" type="date" class="input-field mb-3">
+      <input id="cart-nasc" type="date" class="input-field mb-3" value="${escapeHtml(cf.nasc)}">
 
       <div style="color:var(--rose-dark);font-size:.78rem;min-height:1em;margin-bottom:8px;">${state.checkoutError || ''}</div>
 
       <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:14px;">
-        <input id="cart-consentimento" type="checkbox" style="margin-top:3px;">
+        <input id="cart-consentimento" type="checkbox" style="margin-top:3px;" ${cf.consentimento ? 'checked' : ''}>
         <label for="cart-consentimento" style="font-size:.78rem;color:var(--ink);font-weight:400;">
           Autorizo o uso dos meus dados (nome, CPF, data de nascimento e WhatsApp) para
           confirmar este pedido e para receber comunicações sobre futuros eventos e
@@ -812,37 +829,54 @@ function renderCartModal(wrap) {
       </div>
 
       <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:8px;">Forma de pagamento</label>
-      <div class="flex gap-2 mb-5">
+      <div class="flex gap-2">
         <button data-method="Pix" class="cart-pay-btn btn-outline flex-1 py-2 rounded-lg text-sm font-medium">Pix</button>
         <button data-method="Cartão de crédito" class="cart-pay-btn btn-outline flex-1 py-2 rounded-lg text-sm font-medium">Cartão</button>
       </div>
-      ` : ''}
-      <button id="close-cart-modal" class="text-xs underline" style="color:var(--olive);">fechar</button>
-    </div>`;
-  wrap.appendChild(overlay);
+    </div>
+  `;
+  wrap.appendChild(drawer);
 
-  overlay.querySelectorAll('.qty-stepper').forEach(stepper => {
+  drawer.querySelector('.cart-drawer-header').addEventListener('click', () => {
+    state.cartExpanded = !state.cartExpanded;
+    render();
+  });
+
+  if (!state.cartExpanded) return;
+
+  drawer.querySelectorAll('.qty-stepper').forEach(stepper => {
     const key = stepper.dataset.key;
     const item = state.cart.find(it => it.key === key);
-    stepper.querySelector('.cart-qty-mais').addEventListener('click', () => { cartSetQty(key, item.quantidade + 1); render(); });
-    stepper.querySelector('.cart-qty-menos').addEventListener('click', () => {
+    stepper.querySelector('.cart-qty-mais').addEventListener('click', (e) => { e.stopPropagation(); cartSetQty(key, item.quantidade + 1); render(); });
+    stepper.querySelector('.cart-qty-menos').addEventListener('click', (e) => {
+      e.stopPropagation();
       if (item.quantidade <= 1) { cartRemove(key); } else { cartSetQty(key, item.quantidade - 1); }
       render();
     });
   });
-  overlay.querySelectorAll('.cart-remove').forEach(btn => {
-    btn.addEventListener('click', () => { cartRemove(btn.dataset.key); render(); });
+  drawer.querySelectorAll('.cart-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); cartRemove(btn.dataset.key); render(); });
   });
 
-  const cpfInput = overlay.querySelector('#cart-cpf');
-  if (cpfInput) cpfInput.addEventListener('input', (e) => { e.target.value = maskCPF(e.target.value); });
+  // Mantém os dados digitados salvos no estado, mesmo que o carrinho seja
+  // redesenhado (por exemplo ao mudar a quantidade de um item).
+  const campoNome = drawer.querySelector('#cart-nome');
+  const campoTel = drawer.querySelector('#cart-tel');
+  const campoCpf = drawer.querySelector('#cart-cpf');
+  const campoNasc = drawer.querySelector('#cart-nasc');
+  const campoConsentimento = drawer.querySelector('#cart-consentimento');
+  campoNome.addEventListener('input', () => { state.checkoutForm.nome = campoNome.value; });
+  campoTel.addEventListener('input', () => { state.checkoutForm.tel = campoTel.value; });
+  campoCpf.addEventListener('input', () => { campoCpf.value = maskCPF(campoCpf.value); state.checkoutForm.cpf = campoCpf.value; });
+  campoNasc.addEventListener('input', () => { state.checkoutForm.nasc = campoNasc.value; });
+  campoConsentimento.addEventListener('change', () => { state.checkoutForm.consentimento = campoConsentimento.checked; });
 
-  overlay.querySelectorAll('.cart-pay-btn').forEach(btn => btn.addEventListener('click', async () => {
-    const nome = overlay.querySelector('#cart-nome').value.trim();
-    const tel = overlay.querySelector('#cart-tel').value.trim();
-    const cpf = overlay.querySelector('#cart-cpf').value.trim();
-    const nasc = overlay.querySelector('#cart-nasc').value;
-    const consentiu = overlay.querySelector('#cart-consentimento').checked;
+  drawer.querySelectorAll('.cart-pay-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const nome = campoNome.value.trim();
+    const tel = campoTel.value.trim();
+    const cpf = campoCpf.value.trim();
+    const nasc = campoNasc.value;
+    const consentiu = campoConsentimento.checked;
     if (!isNomeValido(nome)) { state.checkoutError = 'Informe seu nome completo (nome e sobrenome).'; render(); return; }
     if (!isTelValido(tel)) { state.checkoutError = 'Informe um WhatsApp válido, com DDD.'; render(); return; }
     if (!isCpfValido(cpf)) { state.checkoutError = 'Informe um CPF válido.'; render(); return; }
@@ -864,11 +898,10 @@ function renderCartModal(wrap) {
     if (novaJanela) { novaJanela.location.href = url; } else { window.location.href = url; }
 
     state.cart = [];
-    state.cartOpen = false;
+    state.cartExpanded = false;
+    state.checkoutForm = { nome: '', tel: '', cpf: '', nasc: '', consentimento: false };
     render();
   }));
-
-  overlay.querySelector('#close-cart-modal').addEventListener('click', () => { state.cartOpen = false; state.checkoutError = ''; render(); });
 }
 
 (async () => {
