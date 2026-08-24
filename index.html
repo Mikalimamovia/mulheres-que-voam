@@ -120,22 +120,59 @@ function buildOrderMessage(ev, paymentMethod, nomeCompleto) {
   ].join('\n');
 }
 async function registrarMulher(nomeCompleto, telCliente, cpfCliente, nascCliente) {
-  const { error } = await supabase.from('mv_mulheres').insert({
+  const { data, error } = await supabase.from('mv_mulheres').insert({
     nome: nomeCompleto,
     tel: telCliente,
     cpf: cpfCliente,
     data_nascimento: nascCliente,
     consentimento_marketing: true,
     consentimento_data: new Date().toISOString()
-  });
-  if (error && error.code !== '23505') {
-    console.error('Erro ao cadastrar mulher:', error);
+  }).select('id').single();
+
+  if (!error) return data.id;
+
+  if (error.code === '23505') {
+    // já existe (nome ou CPF duplicado) — busca o id existente pra vincular a pendência
+    const { data: existente } = await supabase.from('mv_mulheres')
+      .select('id').ilike('nome', nomeCompleto).maybeSingle();
+    return existente ? existente.id : null;
   }
+
+  console.error('Erro ao cadastrar mulher:', error);
+  return null;
+}
+
+async function registrarPendencia(mulherId, ev, formaPagamento) {
+  if (!mulherId) return;
+  const { error } = await supabase.from('mv_pendencias').insert({
+    mulher_id: mulherId,
+    evento_id: ev.id,
+    forma_pagamento: formaPagamento,
+    valor: ev.preco,
+    status: 'pendente'
+  });
+  if (error) console.error('Erro ao registrar pendência:', error);
 }
 
 function isNomeValido(v) { return v.trim().split(/\s+/).length >= 2; }
 function isTelValido(v) { return v.replace(/\D/g, '').length >= 10; }
-function isCpfValido(v) { return v.replace(/\D/g, '').length === 11; }
+
+// Validação real de CPF (dígitos verificadores), não só o tamanho.
+function isCpfValido(v) {
+  var cpf = String(v).replace(/\D/g, '');
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cpf)) return false; // sequências tipo 111.111.111-11
+  function digito(base) {
+    var soma = 0, peso = base.length + 1;
+    for (var i = 0; i < base.length; i++) { soma += parseInt(base[i], 10) * peso; peso--; }
+    var resto = soma % 11;
+    return resto < 2 ? 0 : 11 - resto;
+  }
+  if (digito(cpf.slice(0, 9)) !== parseInt(cpf[9], 10)) return false;
+  if (digito(cpf.slice(0, 10)) !== parseInt(cpf[10], 10)) return false;
+  return true;
+}
+
 function maskCPF(v) {
   v = v.replace(/\D/g, '').slice(0, 11);
   if (v.length > 9) v = v.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/, '$1.$2.$3-$4');
@@ -353,7 +390,8 @@ function renderModal(wrap) {
     // pelo navegador em celulares — o endereço é preenchido só depois.
     const novaJanela = window.open('', '_blank');
 
-    await registrarMulher(nome, tel, cpf, nasc);
+    const mulherId = await registrarMulher(nome, tel, cpf, nasc);
+    await registrarPendencia(mulherId, ev, btn.dataset.method);
 
     const msg = buildOrderMessage(ev, btn.dataset.method, nome);
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
