@@ -87,6 +87,11 @@
   }
   nav.tabs button.active{background:var(--olive-deep);color:var(--cream);border-color:var(--olive-deep);}
   nav.tabs button:hover:not(.active){background:var(--cream-dim);}
+  #badgePendencias{
+    display:inline-flex;align-items:center;justify-content:center;
+    background:var(--rose);color:#fff;border-radius:999px;
+    min-width:18px;height:18px;font-size:.68rem;font-weight:700;padding:0 5px;margin-left:5px;
+  }
 
   .view{display:none;}
   .view.active{display:block;animation:fade .25s ease;}
@@ -173,6 +178,19 @@
   }
   .toast.show{opacity:1;transform:translateY(0);}
 
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(58,60,44,0.55);
+    display:flex;align-items:center;justify-content:center;padding:16px;z-index:900;
+  }
+  .modal-box{
+    background:var(--cream);border-radius:var(--radius);padding:22px 24px;
+    max-width:420px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:var(--shadow);
+  }
+  .modal-box h2{
+    font-family:'Josefin Sans',sans-serif;font-weight:500;font-size:1.2rem;
+    margin:0 0 16px;color:var(--mocha);letter-spacing:.3px;text-transform:uppercase;
+  }
+
   footer.note{text-align:center;color:var(--olive-soft);font-size:.75rem;margin-top:36px;}
 
   @media(max-width:520px){
@@ -255,6 +273,7 @@
   <nav class="tabs">
     <button data-view="mulheres" class="active">Mulheres</button>
     <button data-view="eventos">Eventos</button>
+    <button data-view="pendencias">Pendências <span id="badgePendencias" style="display:none;"></span></button>
     <button data-view="historico">Histórico</button>
   </nav>
 
@@ -296,7 +315,12 @@
     <div class="panel">
       <div class="row">
         <h2 style="margin:0;">Mulheres cadastradas</h2>
-        <input type="text" id="buscaMulher" placeholder="Buscar por nome ou CPF..." style="max-width:240px;">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:var(--olive-deep);font-weight:600;text-transform:none;">
+            <input type="checkbox" id="toggleArquivadas"> Mostrar arquivadas
+          </label>
+          <input type="text" id="buscaMulher" placeholder="Buscar por nome ou CPF..." style="max-width:240px;">
+        </div>
       </div>
       <div class="table-wrap">
         <table id="tabelaMulheres">
@@ -357,6 +381,18 @@
     <div id="eventoDetalheWrap" style="display:none;"></div>
   </section>
 
+  <!-- ================= PENDÊNCIAS ================= -->
+  <section class="view" id="view-pendencias">
+    <div class="panel">
+      <h2>Compras aguardando confirmação</h2>
+      <p style="font-size:.85rem;color:var(--olive-deep);margin-top:-6px;">
+        Toda vez que alguém compra um ingresso pelo catálogo, aparece aqui até você confirmar
+        o pagamento. Ao aprovar, ela é adicionada automaticamente como participante do evento.
+      </p>
+      <div id="pendenciasLista"></div>
+    </div>
+  </section>
+
   <!-- ================= HISTÓRICO ================= -->
   <section class="view" id="view-historico">
     <div id="historicoListaWrap">
@@ -372,6 +408,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<div id="modalMulherWrap"></div>
 </div>
 
 
@@ -393,7 +430,7 @@
   var supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   var session = null;
 
-  var state = { mulheres: [], eventos: [] };
+  var state = { mulheres: [], eventos: [], pendencias: [] };
 
   function showToast(msg){
     var t = document.getElementById('toast');
@@ -452,6 +489,22 @@
     return v;
   }
 
+  // Validação real de CPF (dígitos verificadores), não só o tamanho.
+  function isCpfValido(v){
+    var cpf = String(v).replace(/\D/g,'');
+    if(cpf.length !== 11) return false;
+    if(/^(\d)\1{10}$/.test(cpf)) return false; // sequências tipo 111.111.111-11
+    function digito(base){
+      var soma = 0, peso = base.length + 1;
+      for(var i=0;i<base.length;i++){ soma += parseInt(base[i],10) * peso; peso--; }
+      var resto = soma % 11;
+      return resto < 2 ? 0 : 11 - resto;
+    }
+    if(digito(cpf.slice(0,9)) !== parseInt(cpf[9],10)) return false;
+    if(digito(cpf.slice(0,10)) !== parseInt(cpf[10],10)) return false;
+    return true;
+  }
+
   // ---------- Navegação por abas ----------
   function switchView(name){
     document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
@@ -460,6 +513,7 @@
       b.classList.toggle('active', b.dataset.view === name);
     });
     if(name === 'eventos'){ showEventosLista(); }
+    if(name === 'pendencias'){ renderPendencias(); }
     if(name === 'historico'){ showHistoricoLista(); }
   }
 
@@ -470,7 +524,10 @@
   // ---------- MULHERES ----------
   function renderMulheres(filtro){
     var tbody = document.querySelector('#tabelaMulheres tbody');
-    var lista = state.mulheres.slice().sort(function(a,b){ return a.nome.localeCompare(b.nome,'pt-BR'); });
+    var mostrarArquivadas = document.getElementById('toggleArquivadas').checked;
+    var lista = state.mulheres.slice()
+      .filter(function(m){ return mostrarArquivadas ? !m.ativa : m.ativa; })
+      .sort(function(a,b){ return a.nome.localeCompare(b.nome,'pt-BR'); });
     if(filtro){
       filtro = filtro.toLowerCase();
       lista = lista.filter(function(m){
@@ -478,23 +535,29 @@
       });
     }
     if(lista.length===0){
-      tbody.innerHTML = '<tr><td colspan="5" class="empty">Nenhuma mulher cadastrada ainda.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">'+(mostrarArquivadas ? 'Nenhuma mulher arquivada.' : 'Nenhuma mulher cadastrada ainda.')+'</td></tr>';
       return;
     }
     tbody.innerHTML = lista.map(function(m){
       var link = waLink(m.tel);
-      return '<tr>' +
+      var acoes = link ? '<a class="btn-whatsapp icon-only" href="'+link+'" target="_blank" rel="noopener" title="Abrir WhatsApp">'+WA_ICON_SVG+'</a>' : '';
+      if(m.ativa){
+        acoes += '<button class="btn-ghost btn-sm" data-edit-mulher="'+m.id+'">Editar</button>' +
+                 '<button class="btn-rose btn-sm" data-del-mulher="'+m.id+'">Excluir</button>';
+      } else {
+        acoes += '<button class="btn-gold btn-sm" data-reativar-mulher="'+m.id+'">Reativar</button>';
+      }
+      return '<tr' + (m.ativa ? '' : ' style="opacity:.6;"') + '>' +
         '<td>'+escapeHtml(m.nome)+'</td>' +
         '<td>'+escapeHtml(m.cpf||'—')+'</td>' +
         '<td>'+(m.data_nascimento ? fmtDate(m.data_nascimento) : '—')+'</td>' +
         '<td>'+escapeHtml(m.tel)+'</td>' +
-        '<td><div class="actions-cell">' +
-          (link ? '<a class="btn-whatsapp icon-only" href="'+link+'" target="_blank" rel="noopener" title="Abrir WhatsApp">'+WA_ICON_SVG+'</a>' : '') +
-          '<button class="btn-rose btn-sm" data-del-mulher="'+m.id+'">Excluir</button>' +
-        '</div></td>' +
+        '<td><div class="actions-cell">' + acoes + '</div></td>' +
       '</tr>';
     }).join('');
   }
+
+  document.getElementById('toggleArquivadas').addEventListener('change', function(){ renderMulheres(document.getElementById('buscaMulher').value); });
 
   document.getElementById('formMulher').addEventListener('submit', async function(e){
     e.preventDefault();
@@ -504,6 +567,7 @@
     var nascimento = document.getElementById('mNasc').value;
     var consentimento = document.getElementById('mConsentimento').checked;
     if(!nome || !tel || !cpf || !nascimento) return;
+    if(!isCpfValido(cpf)){ showToast('Esse CPF não é válido. Confira os números digitados.'); return; }
     if(!consentimento){ showToast('É necessário confirmar o consentimento para cadastrar.'); return; }
     var dupNome = state.mulheres.some(function(m){ return m.nome.toLowerCase() === nome.toLowerCase(); });
     if(dupNome){ showToast('Já existe uma mulher cadastrada com esse nome completo.'); return; }
@@ -517,7 +581,7 @@
       if(error.code === '23505'){ showToast('Já existe uma mulher cadastrada com esse nome ou CPF.'); return; }
       showToast('Erro ao cadastrar: ' + error.message); return;
     }
-    state.mulheres.push({ id: row.id, nome: row.nome, tel: row.tel, cpf: row.cpf, data_nascimento: row.data_nascimento });
+    state.mulheres.push({ id: row.id, nome: row.nome, tel: row.tel, cpf: row.cpf, data_nascimento: row.data_nascimento, consentimento_marketing: row.consentimento_marketing, ativa: true });
     form.reset();
     renderMulheres(document.getElementById('buscaMulher').value);
     showToast('Mulher cadastrada com sucesso.');
@@ -529,20 +593,138 @@
   document.getElementById('buscaMulher').addEventListener('input', function(){ renderMulheres(this.value); });
 
   document.querySelector('#tabelaMulheres tbody').addEventListener('click', async function(e){
+    var editBtn = e.target.closest('[data-edit-mulher]');
+    if(editBtn){ openEditMulher(editBtn.dataset.editMulher); return; }
+
+    var reativarBtn = e.target.closest('[data-reativar-mulher]');
+    if(reativarBtn){
+      var idR = reativarBtn.dataset.reativarMulher;
+      var mr = state.mulheres.find(function(x){ return x.id===idR; });
+      if(!mr) return;
+      var { error: errR } = await supabase.from('mv_mulheres').update({ ativa: true }).eq('id', idR);
+      if(errR){ showToast('Erro ao reativar: ' + errR.message); return; }
+      mr.ativa = true;
+      renderMulheres(document.getElementById('buscaMulher').value);
+      showToast('Cadastro reativado.');
+      return;
+    }
+
     var btn = e.target.closest('[data-del-mulher]');
     if(!btn) return;
     var id = btn.dataset.delMulher;
     var m = state.mulheres.find(function(x){ return x.id===id; });
     if(!m) return;
     var emUso = state.eventos.some(function(ev){ return ev.participantes.some(function(p){ return p.mulherId===id; }); });
-    var msg = 'Excluir "' + m.nome + '"?' + (emUso ? ' Ela já participa de eventos cadastrados (o histórico dos eventos será mantido com o nome atual).' : '');
-    if(!confirm(msg)) return;
+
+    if(emUso){
+      // Ela já participa de algum evento — arquivamos em vez de apagar, pra não
+      // perder o histórico financeiro desses eventos.
+      if(!confirm('Excluir "' + m.nome + '"? Como ela já participa de eventos cadastrados, o cadastro será arquivado (some da lista, mas o histórico dos eventos é mantido). Você pode reativar depois em "Mostrar arquivadas".')) return;
+      var { error: errArq } = await supabase.from('mv_mulheres').update({ ativa: false }).eq('id', id);
+      if(errArq){ showToast('Erro ao arquivar: ' + errArq.message); return; }
+      m.ativa = false;
+      renderMulheres(document.getElementById('buscaMulher').value);
+      showToast('Cadastro arquivado (histórico de eventos preservado).');
+      return;
+    }
+
+    if(!confirm('Excluir "' + m.nome + '"? Essa ação não pode ser desfeita.')) return;
     var { error } = await supabase.from('mv_mulheres').delete().eq('id', id);
-    if(error){ showToast('Erro ao excluir: ' + error.message); return; }
+    if(error){
+      if(error.code === '23503'){
+        // proteção de integridade que não detectamos localmente — arquiva como alternativa segura
+        var { error: errArq2 } = await supabase.from('mv_mulheres').update({ ativa: false }).eq('id', id);
+        if(!errArq2){ m.ativa = false; renderMulheres(document.getElementById('buscaMulher').value); showToast('Ela está vinculada a registros existentes — cadastro arquivado em vez de excluído.'); return; }
+      }
+      showToast('Erro ao excluir: ' + error.message); return;
+    }
     state.mulheres = state.mulheres.filter(function(x){ return x.id!==id; });
     renderMulheres(document.getElementById('buscaMulher').value);
     showToast('Cadastro removido.');
   });
+
+  // ---------- EDITAR MULHER (modal) ----------
+  function closeEditMulher(){
+    document.getElementById('modalMulherWrap').innerHTML = '';
+  }
+
+  function openEditMulher(id){
+    var m = state.mulheres.find(function(x){ return x.id===id; });
+    if(!m) return;
+    var wrap = document.getElementById('modalMulherWrap');
+    wrap.innerHTML =
+      '<div class="modal-overlay" id="editMulherOverlay">' +
+        '<div class="modal-box">' +
+          '<h2>Editar mulher</h2>' +
+          '<div class="form-grid">' +
+            '<div><label for="emNome">Nome completo</label><input type="text" id="emNome" required></div>' +
+            '<div><label for="emTel">WhatsApp / Telefone</label><input type="text" id="emTel" required maxlength="15"></div>' +
+            '<div><label for="emCpf">CPF</label><input type="text" id="emCpf" placeholder="000.000.000-00" maxlength="14"></div>' +
+            '<div><label for="emNasc">Data de nascimento</label><input type="date" id="emNasc"></div>' +
+          '</div>' +
+          '<div style="display:flex;align-items:flex-start;gap:8px;margin:10px 0 16px;">' +
+            '<input type="checkbox" id="emConsentimento" style="margin-top:3px;">' +
+            '<label for="emConsentimento" style="text-transform:none;font-weight:400;font-size:.82rem;">' +
+              'Confirmo que esta mulher autorizou o uso de seus dados (nome, CPF, data de nascimento ' +
+              'e WhatsApp) para confirmar presença em eventos e para receber comunicações sobre futuros ' +
+              'eventos e campanhas do Mulheres que Voam.' +
+            '</label>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button class="btn-primary" id="btnSalvarEdicaoMulher">Salvar alterações</button>' +
+            '<button class="btn-ghost" id="btnCancelarEdicaoMulher">Cancelar</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    document.getElementById('emNome').value = m.nome || '';
+    document.getElementById('emTel').value = m.tel || '';
+    document.getElementById('emCpf').value = m.cpf || '';
+    document.getElementById('emNasc').value = m.data_nascimento || '';
+    document.getElementById('emConsentimento').checked = !!m.consentimento_marketing;
+
+    document.getElementById('emTel').addEventListener('input', function(){ this.value = maskTel(this.value); });
+    document.getElementById('emCpf').addEventListener('input', function(){ this.value = maskCPF(this.value); });
+
+    document.getElementById('btnCancelarEdicaoMulher').addEventListener('click', closeEditMulher);
+    document.getElementById('editMulherOverlay').addEventListener('click', function(e){
+      if(e.target.id === 'editMulherOverlay') closeEditMulher();
+    });
+
+    document.getElementById('btnSalvarEdicaoMulher').addEventListener('click', async function(){
+      var novoNome = document.getElementById('emNome').value.trim();
+      var novoTel = document.getElementById('emTel').value.trim();
+      var novoCpf = document.getElementById('emCpf').value.trim();
+      var novoNasc = document.getElementById('emNasc').value;
+      var novoConsentimento = document.getElementById('emConsentimento').checked;
+      if(!novoNome || !novoTel){ showToast('Nome e WhatsApp são obrigatórios.'); return; }
+      if(novoCpf && !isCpfValido(novoCpf)){ showToast('Esse CPF não é válido. Confira os números digitados.'); return; }
+      if((novoCpf || novoNasc) && !novoConsentimento){
+        showToast('É necessário confirmar o consentimento para salvar CPF/data de nascimento.');
+        return;
+      }
+      var payload = {
+        nome: novoNome, tel: novoTel,
+        cpf: novoCpf || null, data_nascimento: novoNasc || null
+      };
+      if(novoConsentimento && !m.consentimento_marketing){
+        payload.consentimento_marketing = true;
+        payload.consentimento_data = new Date().toISOString();
+      } else if(!novoConsentimento){
+        payload.consentimento_marketing = false;
+      }
+      var { data: row, error } = await supabase.from('mv_mulheres').update(payload).eq('id', id).select().single();
+      if(error){
+        if(error.code === '23505'){ showToast('Já existe uma mulher cadastrada com esse nome ou CPF.'); return; }
+        showToast('Erro ao salvar: ' + error.message); return;
+      }
+      m.nome = row.nome; m.tel = row.tel; m.cpf = row.cpf; m.data_nascimento = row.data_nascimento;
+      m.consentimento_marketing = payload.consentimento_marketing !== undefined ? payload.consentimento_marketing : m.consentimento_marketing;
+      closeEditMulher();
+      renderMulheres(document.getElementById('buscaMulher').value);
+      showToast('Cadastro atualizado com sucesso.');
+    });
+  }
 
   // ---------- EVENTOS ----------
   var eventoAtualId = null;
@@ -684,7 +866,7 @@
   });
 
   function mulheresOptions(excludeIds){
-    var disponiveis = state.mulheres.filter(function(m){ return excludeIds.indexOf(m.id)===-1; })
+    var disponiveis = state.mulheres.filter(function(m){ return excludeIds.indexOf(m.id)===-1 && m.ativa; })
       .sort(function(a,b){ return a.nome.localeCompare(b.nome,'pt-BR'); });
     if(disponiveis.length===0) return '<option value="">Nenhuma mulher disponível</option>';
     return '<option value="">Selecione uma mulher...</option>' + disponiveis.map(function(m){
@@ -1157,12 +1339,16 @@
     var participantesRes = await supabase.from('mv_participantes').select('*');
     var custosRes = await supabase.from('mv_custos').select('*');
     var programacaoRes = await supabase.from('mv_programacao').select('*');
+    var pendenciasRes = await supabase.from('mv_pendencias')
+      .select('*, mv_mulheres(nome,tel,cpf), mv_eventos(nome,data,hora)')
+      .eq('status', 'pendente').order('created_at', { ascending: true });
     if(mulheresRes.error || eventosRes.error || participantesRes.error || custosRes.error || programacaoRes.error){
       console.error(mulheresRes.error, eventosRes.error, participantesRes.error, custosRes.error, programacaoRes.error);
       showToast('Erro ao carregar dados. Recarregue a página.');
       return;
     }
-    state.mulheres = mulheresRes.data.map(function(m){ return { id: m.id, nome: m.nome, tel: m.tel, cpf: m.cpf, data_nascimento: m.data_nascimento }; });
+    if(pendenciasRes.error){ console.error(pendenciasRes.error); }
+    state.mulheres = mulheresRes.data.map(function(m){ return { id: m.id, nome: m.nome, tel: m.tel, cpf: m.cpf, data_nascimento: m.data_nascimento, consentimento_marketing: m.consentimento_marketing, ativa: m.ativa !== false }; });
     state.eventos = eventosRes.data.map(function(ev){
       return {
         id: ev.id, nome: ev.nome, data: ev.data, hora: (ev.hora||'').slice(0,5),
@@ -1175,6 +1361,106 @@
         programacao: programacaoRes.data.filter(function(p){ return p.evento_id===ev.id; })
           .map(function(p){ return { id: p.id, horario: (p.horario||'').slice(0,5), atividade: p.atividade }; })
       };
+    });
+    state.pendencias = (pendenciasRes.data || []).map(function(p){
+      return {
+        id: p.id, mulherId: p.mulher_id, eventoId: p.evento_id,
+        formaPagamento: p.forma_pagamento, valor: p.valor, createdAt: p.created_at,
+        mulherNome: p.mv_mulheres ? p.mv_mulheres.nome : '(mulher removida)',
+        mulherTel: p.mv_mulheres ? p.mv_mulheres.tel : '',
+        eventoNome: p.mv_eventos ? p.mv_eventos.nome : '(evento removido)',
+        eventoData: p.mv_eventos ? p.mv_eventos.data : null,
+        eventoHora: p.mv_eventos ? (p.mv_eventos.hora||'').slice(0,5) : ''
+      };
+    });
+    atualizarBadgePendencias();
+  }
+
+  function atualizarBadgePendencias(){
+    var badge = document.getElementById('badgePendencias');
+    var n = state.pendencias.length;
+    if(n>0){ badge.style.display=''; badge.textContent = n; } else { badge.style.display='none'; }
+  }
+
+  // ---------- PENDÊNCIAS ----------
+  function renderPendencias(){
+    var wrap = document.getElementById('pendenciasLista');
+    if(state.pendencias.length===0){
+      wrap.innerHTML = '<div class="empty">Nenhuma compra aguardando confirmação no momento.</div>';
+      return;
+    }
+    wrap.innerHTML = state.pendencias.map(function(p){
+      var dataEvento = p.eventoData ? fmtDate(p.eventoData) + (p.eventoHora ? ' às '+p.eventoHora : '') : '';
+      var link = waLink(p.mulherTel);
+      return '<div class="panel" style="margin-bottom:12px;">' +
+        '<div class="row" style="margin-bottom:10px;">' +
+          '<div>' +
+            '<h3 style="margin:0 0 3px;">'+escapeHtml(p.mulherNome)+'</h3>' +
+            '<div style="font-size:.82rem;color:var(--olive-deep);">Evento: '+escapeHtml(p.eventoNome)+(dataEvento?' · '+dataEvento:'')+'</div>' +
+            '<div style="font-size:.78rem;color:var(--olive-soft);margin-top:2px;">Solicitado em '+fmtDate(p.createdAt ? p.createdAt.slice(0,10) : '')+'</div>' +
+          '</div>' +
+          (link ? '<a class="btn-whatsapp icon-only" href="'+link+'" target="_blank" rel="noopener" title="Abrir WhatsApp">'+WA_ICON_SVG+'</a>' : '') +
+        '</div>' +
+        '<div class="inline-form" style="margin-bottom:12px;">' +
+          '<div><label>Forma de pagamento</label><input type="text" value="'+escapeHtml(p.formaPagamento||'—')+'" disabled></div>' +
+          '<div style="max-width:160px;"><label>Valor a confirmar</label><input type="number" min="0" step="0.01" id="valorPend_'+p.id+'" value="'+(Number(p.valor)||0)+'"></div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button class="btn-gold btn-sm" data-aprovar-pendencia="'+p.id+'">✓ Aprovar e adicionar ao evento</button>' +
+          '<button class="btn-rose btn-sm" data-rejeitar-pendencia="'+p.id+'">Rejeitar</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    wrap.querySelectorAll('[data-aprovar-pendencia]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.dataset.aprovarPendencia;
+        var p = state.pendencias.find(function(x){ return x.id===id; });
+        if(!p) return;
+        if(!p.mulherId || !p.eventoId){ showToast('Não foi possível aprovar: mulher ou evento não encontrados.'); return; }
+        var valorInput = document.getElementById('valorPend_'+id);
+        var valor = Number(valorInput.value)||0;
+        btn.disabled = true; btn.textContent = 'Aprovando...';
+
+        // evita duplicar se ela já estiver confirmada nesse evento
+        var jaConfirmada = await supabase.from('mv_participantes').select('id').eq('evento_id', p.eventoId).eq('mulher_id', p.mulherId).maybeSingle();
+        if(!jaConfirmada.error && jaConfirmada.data){
+          await supabase.from('mv_pendencias').update({ status:'aprovada', resolved_at: new Date().toISOString() }).eq('id', id);
+          state.pendencias = state.pendencias.filter(function(x){ return x.id!==id; });
+          atualizarBadgePendencias(); renderPendencias();
+          showToast('Ela já estava confirmada nesse evento — pendência arquivada.');
+          return;
+        }
+
+        var insertRes = await supabase.from('mv_participantes').insert({
+          evento_id: p.eventoId, mulher_id: p.mulherId, nome: p.mulherNome, valor_pago: valor
+        }).select().single();
+        if(insertRes.error){ showToast('Erro ao adicionar ao evento: ' + insertRes.error.message); btn.disabled=false; btn.textContent='✓ Aprovar e adicionar ao evento'; return; }
+
+        var updRes = await supabase.from('mv_pendencias').update({ status:'aprovada', resolved_at: new Date().toISOString() }).eq('id', id);
+        if(updRes.error){ console.error(updRes.error); }
+
+        var ev = state.eventos.find(function(x){ return x.id===p.eventoId; });
+        if(ev){ ev.participantes.push({ id: insertRes.data.id, mulherId: p.mulherId, nome: p.mulherNome, valorPago: valor }); }
+        state.pendencias = state.pendencias.filter(function(x){ return x.id!==id; });
+        atualizarBadgePendencias();
+        renderPendencias();
+        renderEventosGrid();
+        showToast('Pagamento confirmado — ela foi adicionada ao evento.');
+      });
+    });
+
+    wrap.querySelectorAll('[data-rejeitar-pendencia]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.dataset.rejeitarPendencia;
+        if(!confirm('Rejeitar esta compra? Ela não será adicionada ao evento.')) return;
+        var { error } = await supabase.from('mv_pendencias').update({ status:'rejeitada', resolved_at: new Date().toISOString() }).eq('id', id);
+        if(error){ showToast('Erro ao rejeitar: ' + error.message); return; }
+        state.pendencias = state.pendencias.filter(function(x){ return x.id!==id; });
+        atualizarBadgePendencias();
+        renderPendencias();
+        showToast('Compra rejeitada.');
+      });
     });
   }
 
