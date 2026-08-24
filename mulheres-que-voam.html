@@ -895,7 +895,9 @@
     }
     grid.innerHTML = abertos.map(function(ev){
       var s = eventoStats(ev);
-      var vendaBadge = ev.ativoVenda ? '<span class="badge badge-open" style="background:rgba(111,168,118,.2);color:var(--sage-dark);">À venda</span>' : '';
+      var vendaBadge = ev.ativoVenda
+        ? '<span class="badge badge-open" style="background:rgba(111,168,118,.2);color:var(--sage-dark);">À venda</span>'
+        : '<span class="badge" style="background:rgba(168,92,72,.15);color:var(--rose-dark);">Vendas pausadas</span>';
       return '<div class="event-card" data-open-evento="'+ev.id+'">' +
         '<span class="badge badge-open">Em andamento</span> ' + vendaBadge +
         '<h4 style="margin-top:8px;">'+escapeHtml(ev.nome)+'</h4>' +
@@ -905,8 +907,26 @@
           '<div>Recebido<b>'+fmtMoney(s.recebido)+'</b></div>' +
           '<div>Saldo<b>'+fmtMoney(s.saldo)+'</b></div>' +
         '</div>' +
+        '<button class="btn-sm '+(ev.ativoVenda?'btn-rose':'btn-gold')+'" style="margin-top:10px;width:100%;" data-toggle-venda="'+ev.id+'">'+
+          (ev.ativoVenda ? 'Pausar vendas' : 'Retomar vendas') +
+        '</button>' +
       '</div>';
     }).join('');
+
+    grid.querySelectorAll('[data-toggle-venda]').forEach(function(btn){
+      btn.addEventListener('click', async function(e){
+        e.stopPropagation();
+        var id = btn.dataset.toggleVenda;
+        var ev = state.eventos.find(function(x){ return x.id===id; });
+        if(!ev) return;
+        var novoValor = !ev.ativoVenda;
+        var { error } = await supabase.from('mv_eventos').update({ ativo_venda: novoValor }).eq('id', id);
+        if(error){ showToast('Erro ao atualizar: ' + error.message); return; }
+        ev.ativoVenda = novoValor;
+        renderEventosGrid();
+        showToast(novoValor ? 'Vendas retomadas — o evento volta a aparecer disponível no catálogo.' : 'Vendas pausadas — o evento some do botão de compra no catálogo (continua visível como "vendas pausadas").');
+      });
+    });
   }
 
   document.getElementById('eventosGrid').addEventListener('click', function(e){
