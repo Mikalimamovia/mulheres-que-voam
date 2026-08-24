@@ -296,7 +296,11 @@ let state = {
 };
 
 async function loadProdutos() {
-  const { data, error } = await supabase.from('mv_produtos').select('*, mv_produto_variacoes(*), mv_produto_imagens(*)').eq('ativo', true).order('nome');
+  // Lista explícita de colunas (nunca "*"): a coluna "custo" é bloqueada para
+  // visitantes no banco de dados, então um select('*') quebraria o catálogo.
+  const { data, error } = await supabase.from('mv_produtos')
+    .select('id,nome,descricao,preco,tem_variacao,estoque,imagem_url,ativo,mv_produto_variacoes(*),mv_produto_imagens(*)')
+    .eq('ativo', true).order('nome');
   if (error) { console.error(error); return []; }
   data.forEach(p => {
     const galeria = (p.mv_produto_imagens || []).slice().sort((a, b) => a.ordem - b.ordem).map(im => im.url);
@@ -791,7 +795,10 @@ function renderCartDrawer(wrap) {
   const cf = state.checkoutForm;
   drawer.innerHTML = `
     <button type="button" class="cart-drawer-header">
-      <span>🛍️ Carrinho <span class="badge">${cartCount()}</span></span>
+      <span style="display:flex;align-items:center;gap:8px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        Carrinho <span class="badge">${cartCount()}</span>
+      </span>
       <span style="display:flex;align-items:center;gap:8px;">
         ${fmtBRL(cartTotal())}
         <span class="cart-drawer-chevron">▲</span>
