@@ -87,7 +87,7 @@
   }
   nav.tabs button.active{background:var(--olive-deep);color:var(--cream);border-color:var(--olive-deep);}
   nav.tabs button:hover:not(.active){background:var(--cream-dim);}
-  #badgePendencias{
+  #badgePendencias, #badgePedidosLoja{
     display:inline-flex;align-items:center;justify-content:center;
     background:var(--rose);color:#fff;border-radius:999px;
     min-width:18px;height:18px;font-size:.68rem;font-weight:700;padding:0 5px;margin-left:5px;
@@ -273,7 +273,9 @@
   <nav class="tabs">
     <button data-view="mulheres" class="active">Mulheres</button>
     <button data-view="eventos">Eventos</button>
+    <button data-view="produtos">Produtos</button>
     <button data-view="pendencias">Pendências <span id="badgePendencias" style="display:none;"></span></button>
+    <button data-view="pedidosloja">Pedidos Loja <span id="badgePedidosLoja" style="display:none;"></span></button>
     <button data-view="historico">Histórico</button>
   </nav>
 
@@ -381,6 +383,43 @@
     <div id="eventoDetalheWrap" style="display:none;"></div>
   </section>
 
+  <!-- ================= PRODUTOS ================= -->
+  <section class="view" id="view-produtos">
+    <div id="produtosListaWrap">
+      <div class="panel">
+        <h2>Novo produto</h2>
+        <form id="formProduto">
+          <div class="form-grid">
+            <div><label for="pNome">Nome do produto</label><input type="text" id="pNome" required placeholder="Ex: Caneca Mulheres que Voam"></div>
+            <div><label for="pPreco">Preço</label><input type="number" id="pPreco" min="0" step="0.01" required placeholder="0,00"></div>
+          </div>
+          <div class="form-grid">
+            <div style="grid-column:1/-1;"><label for="pDescricao">Descrição (opcional)</label><input type="text" id="pDescricao" placeholder="Ex: Caneca de cerâmica 300ml"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin:8px 0 12px;">
+            <input type="checkbox" id="pTemVariacao">
+            <label for="pTemVariacao" style="text-transform:none;font-weight:400;font-size:.85rem;">Este produto tem variações (tamanho, cor etc.) — o estoque será controlado por variação</label>
+          </div>
+          <div class="form-grid" id="pEstoqueSimplesWrap">
+            <div><label for="pEstoque">Estoque</label><input type="number" id="pEstoque" min="0" step="1" value="0"></div>
+          </div>
+          <div style="margin-bottom:12px;">
+            <label for="pImagem">Foto do produto (opcional)</label>
+            <input type="file" id="pImagem" accept="image/*">
+          </div>
+          <button type="submit" class="btn-primary">+ Cadastrar produto</button>
+        </form>
+      </div>
+
+      <div class="panel">
+        <h2>Produtos cadastrados</h2>
+        <div class="event-grid" id="produtosGrid"></div>
+      </div>
+    </div>
+
+    <div id="produtoDetalheWrap" style="display:none;"></div>
+  </section>
+
   <!-- ================= PENDÊNCIAS ================= -->
   <section class="view" id="view-pendencias">
     <div class="panel">
@@ -390,6 +429,18 @@
         o pagamento. Ao aprovar, ela é adicionada automaticamente como participante do evento.
       </p>
       <div id="pendenciasLista"></div>
+    </div>
+  </section>
+
+  <!-- ================= PEDIDOS LOJA ================= -->
+  <section class="view" id="view-pedidosloja">
+    <div class="panel">
+      <h2>Pedidos da loja aguardando baixa</h2>
+      <p style="font-size:.85rem;color:var(--olive-deep);margin-top:-6px;">
+        Toda vez que alguém compra um produto pelo catálogo, aparece aqui até você dar baixa
+        no estoque (depois de confirmar o pagamento) ou cancelar o pedido.
+      </p>
+      <div id="pedidosLojaLista"></div>
     </div>
   </section>
 
@@ -430,7 +481,7 @@
   var supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   var session = null;
 
-  var state = { mulheres: [], eventos: [], pendencias: [] };
+  var state = { mulheres: [], eventos: [], pendencias: [], produtos: [], pedidosLoja: [] };
 
   function showToast(msg){
     var t = document.getElementById('toast');
@@ -513,7 +564,9 @@
       b.classList.toggle('active', b.dataset.view === name);
     });
     if(name === 'eventos'){ showEventosLista(); }
+    if(name === 'produtos'){ showProdutosLista(); }
     if(name === 'pendencias'){ renderPendencias(); }
+    if(name === 'pedidosloja'){ renderPedidosLoja(); }
     if(name === 'historico'){ showHistoricoLista(); }
   }
 
@@ -1342,12 +1395,18 @@
     var pendenciasRes = await supabase.from('mv_pendencias')
       .select('*, mv_mulheres(nome,tel,cpf), mv_eventos(nome,data,hora)')
       .eq('status', 'pendente').order('created_at', { ascending: true });
+    var produtosRes = await supabase.from('mv_produtos').select('*, mv_produto_variacoes(*)').order('nome');
+    var pedidosLojaRes = await supabase.from('mv_pedidos_loja')
+      .select('*, mv_mulheres(nome,tel)')
+      .eq('status', 'pendente').order('created_at', { ascending: true });
     if(mulheresRes.error || eventosRes.error || participantesRes.error || custosRes.error || programacaoRes.error){
       console.error(mulheresRes.error, eventosRes.error, participantesRes.error, custosRes.error, programacaoRes.error);
       showToast('Erro ao carregar dados. Recarregue a página.');
       return;
     }
     if(pendenciasRes.error){ console.error(pendenciasRes.error); }
+    if(produtosRes.error){ console.error(produtosRes.error); }
+    if(pedidosLojaRes.error){ console.error(pedidosLojaRes.error); }
     state.mulheres = mulheresRes.data.map(function(m){ return { id: m.id, nome: m.nome, tel: m.tel, cpf: m.cpf, data_nascimento: m.data_nascimento, consentimento_marketing: m.consentimento_marketing, ativa: m.ativa !== false }; });
     state.eventos = eventosRes.data.map(function(ev){
       return {
@@ -1373,13 +1432,246 @@
         eventoHora: p.mv_eventos ? (p.mv_eventos.hora||'').slice(0,5) : ''
       };
     });
+    state.produtos = (produtosRes.data || []).map(function(p){
+      return {
+        id: p.id, nome: p.nome, descricao: p.descricao, preco: p.preco,
+        imagemUrl: p.imagem_url, temVariacao: p.tem_variacao, estoque: p.estoque, ativo: p.ativo !== false,
+        variacoes: (p.mv_produto_variacoes || []).map(function(v){ return { id: v.id, nome: v.nome, estoque: v.estoque }; })
+      };
+    });
+    state.pedidosLoja = (pedidosLojaRes.data || []).map(function(p){
+      return {
+        id: p.id, mulherId: p.mulher_id, itens: p.itens || [], valorTotal: p.valor_total,
+        formaPagamento: p.forma_pagamento, createdAt: p.created_at,
+        mulherNome: p.mv_mulheres ? p.mv_mulheres.nome : '(cliente removida)',
+        mulherTel: p.mv_mulheres ? p.mv_mulheres.tel : ''
+      };
+    });
     atualizarBadgePendencias();
+    atualizarBadgePedidosLoja();
   }
 
   function atualizarBadgePendencias(){
     var badge = document.getElementById('badgePendencias');
     var n = state.pendencias.length;
     if(n>0){ badge.style.display=''; badge.textContent = n; } else { badge.style.display='none'; }
+  }
+
+  function atualizarBadgePedidosLoja(){
+    var badge = document.getElementById('badgePedidosLoja');
+    var n = state.pedidosLoja.length;
+    if(n>0){ badge.style.display=''; badge.textContent = n; } else { badge.style.display='none'; }
+  }
+
+  // ---------- PRODUTOS ----------
+  async function uploadImagemProduto(file, produtoId){
+    var ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    var path = produtoId + '-' + Date.now() + '.' + ext;
+    var { error } = await supabase.storage.from('produtos-imagens').upload(path, file, { upsert: true });
+    if(error){ showToast('Erro ao enviar imagem: ' + error.message); return null; }
+    var { data } = supabase.storage.from('produtos-imagens').getPublicUrl(path);
+    return data.publicUrl;
+  }
+
+  function showProdutosLista(){
+    document.getElementById('produtosListaWrap').style.display = '';
+    document.getElementById('produtoDetalheWrap').style.display = 'none';
+    renderProdutosGrid();
+  }
+
+  function produtoEstoqueResumo(p){
+    if(p.temVariacao){
+      var total = p.variacoes.reduce(function(s,v){ return s + (Number(v.estoque)||0); }, 0);
+      return p.variacoes.length + ' variação(ões) · ' + total + ' em estoque';
+    }
+    return (p.estoque==null ? 0 : p.estoque) + ' em estoque';
+  }
+
+  function renderProdutosGrid(){
+    var grid = document.getElementById('produtosGrid');
+    if(state.produtos.length===0){
+      grid.innerHTML = '<div class="empty">Nenhum produto cadastrado ainda.</div>';
+      return;
+    }
+    grid.innerHTML = state.produtos.map(function(p){
+      var imgHtml = p.imagemUrl
+        ? '<img src="'+p.imagemUrl+'" style="width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:10px;margin-bottom:8px;">'
+        : '';
+      return '<div class="event-card" data-open-produto="'+p.id+'">' +
+        imgHtml +
+        '<span class="badge '+(p.ativo?'badge-open':'badge-closed')+'">'+(p.ativo?'Ativo':'Inativo')+'</span>' +
+        '<h4 style="margin-top:8px;">'+escapeHtml(p.nome)+'</h4>' +
+        '<div class="meta">'+fmtMoney(p.preco)+' · '+produtoEstoqueResumo(p)+'</div>' +
+      '</div>';
+    }).join('');
+    grid.querySelectorAll('[data-open-produto]').forEach(function(card){
+      card.addEventListener('click', function(){ openProdutoDetalhe(card.dataset.openProduto); });
+    });
+  }
+
+  document.getElementById('pTemVariacao').addEventListener('change', function(){
+    document.getElementById('pEstoqueSimplesWrap').style.display = this.checked ? 'none' : '';
+  });
+
+  document.getElementById('formProduto').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var nome = document.getElementById('pNome').value.trim();
+    var preco = Number(document.getElementById('pPreco').value)||0;
+    var descricao = document.getElementById('pDescricao').value.trim();
+    var temVariacao = document.getElementById('pTemVariacao').checked;
+    var estoque = Number(document.getElementById('pEstoque').value)||0;
+    var arquivoImagem = document.getElementById('pImagem').files[0];
+    if(!nome){ showToast('Informe o nome do produto.'); return; }
+    var form = this;
+    var { data: row, error } = await supabase.from('mv_produtos').insert({
+      nome: nome, descricao: descricao || null, preco: preco,
+      tem_variacao: temVariacao, estoque: temVariacao ? null : estoque, ativo: true
+    }).select().single();
+    if(error){ showToast('Erro ao cadastrar produto: ' + error.message); return; }
+    var imagemUrl = null;
+    if(arquivoImagem){
+      imagemUrl = await uploadImagemProduto(arquivoImagem, row.id);
+      if(imagemUrl){ await supabase.from('mv_produtos').update({ imagem_url: imagemUrl }).eq('id', row.id); }
+    }
+    state.produtos.push({ id: row.id, nome: row.nome, descricao: row.descricao, preco: row.preco, imagemUrl: imagemUrl, temVariacao: row.tem_variacao, estoque: row.estoque, ativo: true, variacoes: [] });
+    form.reset();
+    document.getElementById('pEstoqueSimplesWrap').style.display = '';
+    renderProdutosGrid();
+    showToast('Produto cadastrado com sucesso.' + (temVariacao ? ' Agora adicione as variações no detalhe do produto.' : ''));
+  });
+
+  function openProdutoDetalhe(id){
+    var p = state.produtos.find(function(x){ return x.id===id; });
+    if(!p) return;
+    document.getElementById('produtosListaWrap').style.display = 'none';
+    var wrap = document.getElementById('produtoDetalheWrap');
+    wrap.style.display = '';
+    renderProdutoDetalhe(p, wrap);
+  }
+
+  function renderProdutoDetalhe(p, container){
+    var html = '';
+    html += '<button class="back-link" id="voltarProdutos">← Voltar</button>';
+    html += '<div class="panel">';
+    html += '<div class="detail-head">';
+    html += '<div><h2>'+escapeHtml(p.nome)+'</h2><div class="meta">'+fmtMoney(p.preco)+' · '+produtoEstoqueResumo(p)+'</div></div>';
+    html += '<div><span class="badge '+(p.ativo?'badge-open':'badge-closed')+'">'+(p.ativo?'Ativo':'Inativo')+'</span></div>';
+    html += '</div>';
+
+    html += '<div class="form-grid">';
+    html += '<div><label>Nome</label><input type="text" id="edProdNome" value="'+escapeHtml(p.nome)+'"></div>';
+    html += '<div><label>Preço</label><input type="number" id="edProdPreco" min="0" step="0.01" value="'+(Number(p.preco)||0)+'"></div>';
+    if(!p.temVariacao){
+      html += '<div><label>Estoque</label><input type="number" id="edProdEstoque" min="0" step="1" value="'+(p.estoque==null?0:p.estoque)+'"></div>';
+    }
+    html += '<div style="grid-column:1/-1;"><label>Descrição</label><input type="text" id="edProdDescricao" value="'+escapeHtml(p.descricao||'')+'"></div>';
+    html += '</div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:6px 0 14px;">';
+    html += '<input type="checkbox" id="edProdAtivo" '+(p.ativo?'checked':'')+'> <label for="edProdAtivo" style="text-transform:none;font-weight:400;font-size:.85rem;">Produto ativo (visível no catálogo)</label>';
+    html += '</div>';
+    html += '<div style="margin-bottom:14px;"><label>Trocar foto</label><input type="file" id="edProdImagem" accept="image/*"></div>';
+    html += '<div style="display:flex;gap:8px;">';
+    html += '<button class="btn-primary btn-sm" id="btnSalvarProduto">Salvar alterações</button>';
+    html += '<button class="btn-rose btn-sm" id="btnExcluirProduto">Excluir produto</button>';
+    html += '</div></div>';
+
+    if(p.temVariacao){
+      html += '<div class="panel">';
+      html += '<h3>Variações e estoque</h3>';
+      html += '<div class="inline-form">';
+      html += '<div><label>Nome da variação</label><input type="text" id="novaVariacaoNome" placeholder="Ex: P, M, G ou Azul"></div>';
+      html += '<div style="max-width:140px;"><label>Estoque</label><input type="number" id="novaVariacaoEstoque" min="0" step="1" value="0"></div>';
+      html += '<div style="flex:0;"><button class="btn-primary" id="btnAddVariacao">+ Adicionar</button></div>';
+      html += '</div>';
+      html += '<div class="table-wrap"><table><thead><tr><th>Variação</th><th>Estoque</th><th></th></tr></thead><tbody>';
+      if(p.variacoes.length===0){
+        html += '<tr><td colspan="3" class="empty">Nenhuma variação cadastrada ainda.</td></tr>';
+      } else {
+        p.variacoes.forEach(function(v){
+          html += '<tr><td>'+escapeHtml(v.nome)+'</td>' +
+            '<td><input type="number" min="0" step="1" value="'+v.estoque+'" style="max-width:90px;" data-variacao-estoque="'+v.id+'"></td>' +
+            '<td style="text-align:right;"><button class="btn-rose btn-sm" data-rm-variacao="'+v.id+'">Remover</button></td></tr>';
+        });
+      }
+      html += '</tbody></table></div></div>';
+    }
+
+    container.innerHTML = html;
+
+    document.getElementById('voltarProdutos').addEventListener('click', showProdutosLista);
+
+    document.getElementById('btnSalvarProduto').addEventListener('click', async function(){
+      var novoNome = document.getElementById('edProdNome').value.trim();
+      var novoPreco = Number(document.getElementById('edProdPreco').value)||0;
+      var novaDescricao = document.getElementById('edProdDescricao').value.trim();
+      var novoAtivo = document.getElementById('edProdAtivo').checked;
+      var novoEstoqueInput = document.getElementById('edProdEstoque');
+      var novoEstoque = novoEstoqueInput ? (Number(novoEstoqueInput.value)||0) : null;
+      var arquivoImagem = document.getElementById('edProdImagem').files[0];
+      if(!novoNome){ showToast('Informe o nome do produto.'); return; }
+      var payload = { nome: novoNome, preco: novoPreco, descricao: novaDescricao || null, ativo: novoAtivo };
+      if(!p.temVariacao){ payload.estoque = novoEstoque; }
+      if(arquivoImagem){
+        var url = await uploadImagemProduto(arquivoImagem, p.id);
+        if(url){ payload.imagem_url = url; }
+      }
+      var { error } = await supabase.from('mv_produtos').update(payload).eq('id', p.id);
+      if(error){ showToast('Erro ao salvar: ' + error.message); return; }
+      p.nome = novoNome; p.preco = novoPreco; p.descricao = novaDescricao; p.ativo = novoAtivo;
+      if(!p.temVariacao){ p.estoque = novoEstoque; }
+      if(payload.imagem_url){ p.imagemUrl = payload.imagem_url; }
+      renderProdutoDetalhe(p, container);
+      renderProdutosGrid();
+      showToast('Produto atualizado.');
+    });
+
+    document.getElementById('btnExcluirProduto').addEventListener('click', async function(){
+      if(!confirm('Excluir "'+p.nome+'"? Essa ação não pode ser desfeita, mas pedidos já feitos continuam no histórico normalmente.')) return;
+      var { error } = await supabase.from('mv_produtos').delete().eq('id', p.id);
+      if(error){ showToast('Erro ao excluir: ' + error.message); return; }
+      state.produtos = state.produtos.filter(function(x){ return x.id!==p.id; });
+      showProdutosLista();
+      showToast('Produto excluído.');
+    });
+
+    var addVar = document.getElementById('btnAddVariacao');
+    if(addVar) addVar.addEventListener('click', async function(){
+      var nomeVar = document.getElementById('novaVariacaoNome').value.trim();
+      var estoqueVar = Number(document.getElementById('novaVariacaoEstoque').value)||0;
+      if(!nomeVar){ showToast('Informe o nome da variação.'); return; }
+      var { data: row, error } = await supabase.from('mv_produto_variacoes').insert({
+        produto_id: p.id, nome: nomeVar, estoque: estoqueVar
+      }).select().single();
+      if(error){ showToast('Erro ao adicionar variação: ' + error.message); return; }
+      p.variacoes.push({ id: row.id, nome: row.nome, estoque: row.estoque });
+      renderProdutoDetalhe(p, container);
+      renderProdutosGrid();
+    });
+
+    container.querySelectorAll('[data-variacao-estoque]').forEach(function(input){
+      input.addEventListener('change', async function(){
+        var vid = input.dataset.variacaoEstoque;
+        var novoEstoque = Number(input.value)||0;
+        var { error } = await supabase.from('mv_produto_variacoes').update({ estoque: novoEstoque }).eq('id', vid);
+        if(error){ showToast('Erro ao salvar estoque: ' + error.message); return; }
+        var v = p.variacoes.find(function(x){ return x.id===vid; });
+        if(v){ v.estoque = novoEstoque; }
+        renderProdutosGrid();
+        showToast('Estoque atualizado.');
+      });
+    });
+
+    container.querySelectorAll('[data-rm-variacao]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var vid = btn.dataset.rmVariacao;
+        if(!confirm('Remover esta variação?')) return;
+        var { error } = await supabase.from('mv_produto_variacoes').delete().eq('id', vid);
+        if(error){ showToast('Erro ao remover: ' + error.message); return; }
+        p.variacoes = p.variacoes.filter(function(x){ return x.id!==vid; });
+        renderProdutoDetalhe(p, container);
+        renderProdutosGrid();
+      });
+    });
   }
 
   // ---------- PENDÊNCIAS ----------
@@ -1460,6 +1752,95 @@
         atualizarBadgePendencias();
         renderPendencias();
         showToast('Compra rejeitada.');
+      });
+    });
+  }
+
+  // ---------- PEDIDOS LOJA ----------
+  function renderPedidosLoja(){
+    var wrap = document.getElementById('pedidosLojaLista');
+    if(state.pedidosLoja.length===0){
+      wrap.innerHTML = '<div class="empty">Nenhum pedido da loja aguardando baixa no momento.</div>';
+      return;
+    }
+    wrap.innerHTML = state.pedidosLoja.map(function(ped){
+      var link = waLink(ped.mulherTel);
+      var itensHtml = ped.itens.map(function(it){
+        return '<div style="display:flex;justify-content:space-between;font-size:.85rem;padding:4px 0;border-bottom:1px dashed var(--line);">' +
+          '<span>'+it.quantidade+'x '+escapeHtml(it.produto_nome)+(it.variacao_nome?' ('+escapeHtml(it.variacao_nome)+')':'')+'</span>' +
+          '<span>'+fmtMoney(it.preco_unitario * it.quantidade)+'</span>' +
+        '</div>';
+      }).join('');
+      return '<div class="panel" style="margin-bottom:12px;">' +
+        '<div class="row" style="margin-bottom:10px;">' +
+          '<div>' +
+            '<h3 style="margin:0 0 3px;">'+escapeHtml(ped.mulherNome)+'</h3>' +
+            '<div style="font-size:.78rem;color:var(--olive-soft);">Pedido em '+fmtDate(ped.createdAt ? ped.createdAt.slice(0,10) : '')+'</div>' +
+          '</div>' +
+          (link ? '<a class="btn-whatsapp icon-only" href="'+link+'" target="_blank" rel="noopener" title="Abrir WhatsApp">'+WA_ICON_SVG+'</a>' : '') +
+        '</div>' +
+        '<div style="margin-bottom:10px;">'+itensHtml+'</div>' +
+        '<div class="row" style="margin-bottom:12px;">' +
+          '<div style="font-size:.85rem;color:var(--olive-deep);">Pagamento: '+escapeHtml(ped.formaPagamento||'—')+'</div>' +
+          '<div style="font-weight:700;color:var(--sage-dark);">Total: '+fmtMoney(ped.valorTotal)+'</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button class="btn-gold btn-sm" data-baixa-pedido="'+ped.id+'">✓ Dar baixa no estoque</button>' +
+          '<button class="btn-rose btn-sm" data-cancelar-pedido="'+ped.id+'">Cancelar pedido</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    wrap.querySelectorAll('[data-baixa-pedido]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.dataset.baixaPedido;
+        var ped = state.pedidosLoja.find(function(x){ return x.id===id; });
+        if(!ped) return;
+        if(!confirm('Confirmar baixa no estoque para o pedido de "'+ped.mulherNome+'"? Certifique-se de que o pagamento já foi confirmado.')) return;
+        btn.disabled = true; btn.textContent = 'Processando...';
+
+        for(var i=0;i<ped.itens.length;i++){
+          var it = ped.itens[i];
+          if(it.variacao_id){
+            var vAtual = await supabase.from('mv_produto_variacoes').select('estoque').eq('id', it.variacao_id).maybeSingle();
+            var estoqueAtualV = (vAtual.data ? vAtual.data.estoque : 0) - it.quantidade;
+            await supabase.from('mv_produto_variacoes').update({ estoque: Math.max(0, estoqueAtualV) }).eq('id', it.variacao_id);
+            var produtoLocalV = state.produtos.find(function(pp){ return pp.variacoes.some(function(v){ return v.id===it.variacao_id; }); });
+            if(produtoLocalV){
+              var vLocal = produtoLocalV.variacoes.find(function(v){ return v.id===it.variacao_id; });
+              if(vLocal){ vLocal.estoque = Math.max(0, estoqueAtualV); }
+            }
+          } else if(it.produto_id){
+            var pAtual = await supabase.from('mv_produtos').select('estoque').eq('id', it.produto_id).maybeSingle();
+            if(pAtual.data && pAtual.data.estoque != null){
+              var estoqueAtualP = pAtual.data.estoque - it.quantidade;
+              await supabase.from('mv_produtos').update({ estoque: Math.max(0, estoqueAtualP) }).eq('id', it.produto_id);
+              var produtoLocalP = state.produtos.find(function(pp){ return pp.id===it.produto_id; });
+              if(produtoLocalP){ produtoLocalP.estoque = Math.max(0, estoqueAtualP); }
+            }
+          }
+        }
+
+        var { error } = await supabase.from('mv_pedidos_loja').update({ status:'baixado', resolved_at: new Date().toISOString() }).eq('id', id);
+        if(error){ showToast('Erro ao finalizar baixa: ' + error.message); btn.disabled=false; btn.textContent='✓ Dar baixa no estoque'; return; }
+        state.pedidosLoja = state.pedidosLoja.filter(function(x){ return x.id!==id; });
+        atualizarBadgePedidosLoja();
+        renderPedidosLoja();
+        renderProdutosGrid();
+        showToast('Baixa realizada com sucesso.');
+      });
+    });
+
+    wrap.querySelectorAll('[data-cancelar-pedido]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.dataset.cancelarPedido;
+        if(!confirm('Cancelar este pedido? O estoque não será alterado.')) return;
+        var { error } = await supabase.from('mv_pedidos_loja').update({ status:'cancelado', resolved_at: new Date().toISOString() }).eq('id', id);
+        if(error){ showToast('Erro ao cancelar: ' + error.message); return; }
+        state.pedidosLoja = state.pedidosLoja.filter(function(x){ return x.id!==id; });
+        atualizarBadgePedidosLoja();
+        renderPedidosLoja();
+        showToast('Pedido cancelado.');
       });
     });
   }
