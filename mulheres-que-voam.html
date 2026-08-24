@@ -276,6 +276,7 @@
     <button data-view="produtos">Produtos</button>
     <button data-view="pendencias">Pendências <span id="badgePendencias" style="display:none;"></span></button>
     <button data-view="pedidosloja">Pedidos Loja <span id="badgePedidosLoja" style="display:none;"></span></button>
+    <button data-view="parceiros">Parceiros</button>
     <button data-view="historico">Histórico</button>
   </nav>
 
@@ -404,8 +405,8 @@
             <div><label for="pEstoque">Estoque</label><input type="number" id="pEstoque" min="0" step="1" value="0"></div>
           </div>
           <div style="margin-bottom:12px;">
-            <label for="pImagem">Foto do produto (opcional)</label>
-            <input type="file" id="pImagem" accept="image/*">
+            <label for="pImagem">Fotos do produto (opcional, pode selecionar várias)</label>
+            <input type="file" id="pImagem" accept="image/*" multiple>
           </div>
           <button type="submit" class="btn-primary">+ Cadastrar produto</button>
         </form>
@@ -444,6 +445,35 @@
     </div>
   </section>
 
+  <!-- ================= PARCEIROS ================= -->
+  <section class="view" id="view-parceiros">
+    <div class="panel">
+      <h2>Novo parceiro</h2>
+      <form id="formParceiro">
+        <div class="form-grid">
+          <div><label for="pnNome">Nome do parceiro</label><input type="text" id="pnNome" required placeholder="Ex: Studio Bem-Estar"></div>
+          <div><label for="pnContato">WhatsApp / Contato</label><input type="text" id="pnContato" placeholder="(00) 00000-0000" maxlength="15"></div>
+          <div><label for="pnInstagram">Instagram</label><input type="text" id="pnInstagram" placeholder="@perfil"></div>
+          <div style="grid-column:1/-1;"><label for="pnItem">Item da parceria</label><input type="text" id="pnItem" required placeholder="Ex: Cedeu o espaço para o evento em permuta por divulgação"></div>
+          <div><label for="pnInicio">Início da parceria</label><input type="date" id="pnInicio"></div>
+          <div><label for="pnFim">Fim da parceria</label><input type="date" id="pnFim" required></div>
+        </div>
+        <button type="submit" class="btn-primary">+ Cadastrar parceiro</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>Parceiros ativos</h2>
+      <div id="parceirosAtivosLista" class="event-grid"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Parceiros inativos</h2>
+      <p style="font-size:.82rem;color:var(--olive-deep);margin-top:-6px;">A parceria vence automaticamente ao passar do fim do período — renove quando ela continuar.</p>
+      <div id="parceirosInativosLista" class="event-grid"></div>
+    </div>
+  </section>
+
   <!-- ================= HISTÓRICO ================= -->
   <section class="view" id="view-historico">
     <div id="historicoListaWrap">
@@ -460,6 +490,7 @@
 
 <div class="toast" id="toast"></div>
 <div id="modalMulherWrap"></div>
+<div id="modalParceiroWrap"></div>
 </div>
 
 
@@ -481,7 +512,7 @@
   var supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   var session = null;
 
-  var state = { mulheres: [], eventos: [], pendencias: [], produtos: [], pedidosLoja: [] };
+  var state = { mulheres: [], eventos: [], pendencias: [], produtos: [], pedidosLoja: [], parceiros: [] };
 
   function showToast(msg){
     var t = document.getElementById('toast');
@@ -567,6 +598,7 @@
     if(name === 'produtos'){ showProdutosLista(); }
     if(name === 'pendencias'){ renderPendencias(); }
     if(name === 'pedidosloja'){ renderPedidosLoja(); }
+    if(name === 'parceiros'){ renderParceiros(); }
     if(name === 'historico'){ showHistoricoLista(); }
   }
 
@@ -1395,10 +1427,11 @@
     var pendenciasRes = await supabase.from('mv_pendencias')
       .select('*, mv_mulheres(nome,tel,cpf), mv_eventos(nome,data,hora)')
       .eq('status', 'pendente').order('created_at', { ascending: true });
-    var produtosRes = await supabase.from('mv_produtos').select('*, mv_produto_variacoes(*)').order('nome');
+    var produtosRes = await supabase.from('mv_produtos').select('*, mv_produto_variacoes(*), mv_produto_imagens(*)').order('nome');
     var pedidosLojaRes = await supabase.from('mv_pedidos_loja')
       .select('*, mv_mulheres(nome,tel)')
       .eq('status', 'pendente').order('created_at', { ascending: true });
+    var parceirosRes = await supabase.from('mv_parceiros').select('*').order('nome');
     if(mulheresRes.error || eventosRes.error || participantesRes.error || custosRes.error || programacaoRes.error){
       console.error(mulheresRes.error, eventosRes.error, participantesRes.error, custosRes.error, programacaoRes.error);
       showToast('Erro ao carregar dados. Recarregue a página.');
@@ -1407,6 +1440,7 @@
     if(pendenciasRes.error){ console.error(pendenciasRes.error); }
     if(produtosRes.error){ console.error(produtosRes.error); }
     if(pedidosLojaRes.error){ console.error(pedidosLojaRes.error); }
+    if(parceirosRes.error){ console.error(parceirosRes.error); }
     state.mulheres = mulheresRes.data.map(function(m){ return { id: m.id, nome: m.nome, tel: m.tel, cpf: m.cpf, data_nascimento: m.data_nascimento, consentimento_marketing: m.consentimento_marketing, ativa: m.ativa !== false }; });
     state.eventos = eventosRes.data.map(function(ev){
       return {
@@ -1433,10 +1467,13 @@
       };
     });
     state.produtos = (produtosRes.data || []).map(function(p){
+      var imagens = (p.mv_produto_imagens || []).slice().sort(function(a,b){ return a.ordem - b.ordem; })
+        .map(function(im){ return { id: im.id, url: im.url, ordem: im.ordem }; });
       return {
         id: p.id, nome: p.nome, descricao: p.descricao, preco: p.preco,
         imagemUrl: p.imagem_url, temVariacao: p.tem_variacao, estoque: p.estoque, ativo: p.ativo !== false,
-        variacoes: (p.mv_produto_variacoes || []).map(function(v){ return { id: v.id, nome: v.nome, estoque: v.estoque }; })
+        variacoes: (p.mv_produto_variacoes || []).map(function(v){ return { id: v.id, nome: v.nome, estoque: v.estoque }; }),
+        imagens: imagens
       };
     });
     state.pedidosLoja = (pedidosLojaRes.data || []).map(function(p){
@@ -1445,6 +1482,12 @@
         formaPagamento: p.forma_pagamento, createdAt: p.created_at,
         mulherNome: p.mv_mulheres ? p.mv_mulheres.nome : '(cliente removida)',
         mulherTel: p.mv_mulheres ? p.mv_mulheres.tel : ''
+      };
+    });
+    state.parceiros = (parceirosRes.data || []).map(function(p){
+      return {
+        id: p.id, nome: p.nome, contato: p.contato_whatsapp, instagram: p.instagram,
+        item: p.item_parceria, periodoInicio: p.periodo_inicio, periodoFim: p.periodo_fim
       };
     });
     atualizarBadgePendencias();
@@ -1494,14 +1537,15 @@
       return;
     }
     grid.innerHTML = state.produtos.map(function(p){
-      var imgHtml = p.imagemUrl
-        ? '<img src="'+p.imagemUrl+'" style="width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:10px;margin-bottom:8px;">'
+      var capaUrl = (p.imagens && p.imagens.length>0) ? p.imagens[0].url : p.imagemUrl;
+      var imgHtml = capaUrl
+        ? '<img src="'+capaUrl+'" style="width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:10px;margin-bottom:8px;">'
         : '';
       return '<div class="event-card" data-open-produto="'+p.id+'">' +
         imgHtml +
         '<span class="badge '+(p.ativo?'badge-open':'badge-closed')+'">'+(p.ativo?'Ativo':'Inativo')+'</span>' +
         '<h4 style="margin-top:8px;">'+escapeHtml(p.nome)+'</h4>' +
-        '<div class="meta">'+fmtMoney(p.preco)+' · '+produtoEstoqueResumo(p)+'</div>' +
+        '<div class="meta">'+fmtMoney(p.preco)+' · '+produtoEstoqueResumo(p)+(p.imagens&&p.imagens.length>0?' · '+p.imagens.length+' foto(s)':'')+'</div>' +
       '</div>';
     }).join('');
     grid.querySelectorAll('[data-open-produto]').forEach(function(card){
@@ -1520,7 +1564,7 @@
     var descricao = document.getElementById('pDescricao').value.trim();
     var temVariacao = document.getElementById('pTemVariacao').checked;
     var estoque = Number(document.getElementById('pEstoque').value)||0;
-    var arquivoImagem = document.getElementById('pImagem').files[0];
+    var arquivos = Array.prototype.slice.call(document.getElementById('pImagem').files);
     if(!nome){ showToast('Informe o nome do produto.'); return; }
     var form = this;
     var { data: row, error } = await supabase.from('mv_produtos').insert({
@@ -1528,12 +1572,15 @@
       tem_variacao: temVariacao, estoque: temVariacao ? null : estoque, ativo: true
     }).select().single();
     if(error){ showToast('Erro ao cadastrar produto: ' + error.message); return; }
-    var imagemUrl = null;
-    if(arquivoImagem){
-      imagemUrl = await uploadImagemProduto(arquivoImagem, row.id);
-      if(imagemUrl){ await supabase.from('mv_produtos').update({ imagem_url: imagemUrl }).eq('id', row.id); }
+    var imagensSalvas = [];
+    for(var i=0;i<arquivos.length;i++){
+      var url = await uploadImagemProduto(arquivos[i], row.id);
+      if(!url) continue;
+      var { data: imgRow, error: imgErr } = await supabase.from('mv_produto_imagens').insert({ produto_id: row.id, url: url, ordem: i }).select().single();
+      if(!imgErr){ imagensSalvas.push({ id: imgRow.id, url: imgRow.url, ordem: imgRow.ordem }); }
     }
-    state.produtos.push({ id: row.id, nome: row.nome, descricao: row.descricao, preco: row.preco, imagemUrl: imagemUrl, temVariacao: row.tem_variacao, estoque: row.estoque, ativo: true, variacoes: [] });
+    if(imagensSalvas.length>0){ await supabase.from('mv_produtos').update({ imagem_url: imagensSalvas[0].url }).eq('id', row.id); }
+    state.produtos.push({ id: row.id, nome: row.nome, descricao: row.descricao, preco: row.preco, imagemUrl: imagensSalvas[0] ? imagensSalvas[0].url : null, temVariacao: row.tem_variacao, estoque: row.estoque, ativo: true, variacoes: [], imagens: imagensSalvas });
     form.reset();
     document.getElementById('pEstoqueSimplesWrap').style.display = '';
     renderProdutosGrid();
@@ -1569,11 +1616,30 @@
     html += '<div style="display:flex;align-items:center;gap:8px;margin:6px 0 14px;">';
     html += '<input type="checkbox" id="edProdAtivo" '+(p.ativo?'checked':'')+'> <label for="edProdAtivo" style="text-transform:none;font-weight:400;font-size:.85rem;">Produto ativo (visível no catálogo)</label>';
     html += '</div>';
-    html += '<div style="margin-bottom:14px;"><label>Trocar foto</label><input type="file" id="edProdImagem" accept="image/*"></div>';
     html += '<div style="display:flex;gap:8px;">';
     html += '<button class="btn-primary btn-sm" id="btnSalvarProduto">Salvar alterações</button>';
     html += '<button class="btn-rose btn-sm" id="btnExcluirProduto">Excluir produto</button>';
     html += '</div></div>';
+
+    html += '<div class="panel">';
+    html += '<h3>Fotos do produto</h3>';
+    html += '<p style="font-size:.8rem;color:var(--olive-deep);margin-top:-6px;">A primeira foto é a capa mostrada no catálogo. Você pode adicionar quantas quiser — as clientes vão poder navegar entre elas.</p>';
+    if(p.imagens && p.imagens.length>0){
+      html += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">';
+      p.imagens.forEach(function(im, idx){
+        html += '<div style="position:relative;width:84px;height:84px;">' +
+          '<img src="'+im.url+'" style="width:100%;height:100%;object-fit:cover;border-radius:10px;'+(idx===0?'border:2px solid var(--gold);':'border:1px solid var(--line);')+'">' +
+          (idx===0 ? '<span style="position:absolute;bottom:2px;left:2px;background:rgba(58,60,44,.75);color:#fff;font-size:.6rem;padding:1px 5px;border-radius:6px;">capa</span>' : '') +
+          '<button data-rm-imagem="'+im.id+'" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:999px;background:var(--rose);color:#fff;border:none;font-size:.7rem;">✕</button>' +
+        '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div class="empty">Nenhuma foto cadastrada ainda.</div>';
+    }
+    html += '<div><label for="edProdImagem">Adicionar fotos</label><input type="file" id="edProdImagem" accept="image/*" multiple></div>';
+    html += '<button class="btn-primary btn-sm" id="btnAddFotos" style="margin-top:8px;">+ Enviar fotos selecionadas</button>';
+    html += '</div>';
 
     if(p.temVariacao){
       html += '<div class="panel">';
@@ -1607,19 +1673,13 @@
       var novoAtivo = document.getElementById('edProdAtivo').checked;
       var novoEstoqueInput = document.getElementById('edProdEstoque');
       var novoEstoque = novoEstoqueInput ? (Number(novoEstoqueInput.value)||0) : null;
-      var arquivoImagem = document.getElementById('edProdImagem').files[0];
       if(!novoNome){ showToast('Informe o nome do produto.'); return; }
       var payload = { nome: novoNome, preco: novoPreco, descricao: novaDescricao || null, ativo: novoAtivo };
       if(!p.temVariacao){ payload.estoque = novoEstoque; }
-      if(arquivoImagem){
-        var url = await uploadImagemProduto(arquivoImagem, p.id);
-        if(url){ payload.imagem_url = url; }
-      }
       var { error } = await supabase.from('mv_produtos').update(payload).eq('id', p.id);
       if(error){ showToast('Erro ao salvar: ' + error.message); return; }
       p.nome = novoNome; p.preco = novoPreco; p.descricao = novaDescricao; p.ativo = novoAtivo;
       if(!p.temVariacao){ p.estoque = novoEstoque; }
-      if(payload.imagem_url){ p.imagemUrl = payload.imagem_url; }
       renderProdutoDetalhe(p, container);
       renderProdutosGrid();
       showToast('Produto atualizado.');
@@ -1632,6 +1692,47 @@
       state.produtos = state.produtos.filter(function(x){ return x.id!==p.id; });
       showProdutosLista();
       showToast('Produto excluído.');
+    });
+
+    document.getElementById('btnAddFotos').addEventListener('click', async function(){
+      var arquivos = Array.prototype.slice.call(document.getElementById('edProdImagem').files);
+      if(arquivos.length===0){ showToast('Selecione ao menos uma foto.'); return; }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Enviando...';
+      var ordemBase = p.imagens.length;
+      for(var i=0;i<arquivos.length;i++){
+        var url = await uploadImagemProduto(arquivos[i], p.id);
+        if(!url) continue;
+        var { data: imgRow, error: imgErr } = await supabase.from('mv_produto_imagens').insert({ produto_id: p.id, url: url, ordem: ordemBase+i }).select().single();
+        if(!imgErr){ p.imagens.push({ id: imgRow.id, url: imgRow.url, ordem: imgRow.ordem }); }
+      }
+      if(p.imagens.length>0 && (!p.imagemUrl)){
+        await supabase.from('mv_produtos').update({ imagem_url: p.imagens[0].url }).eq('id', p.id);
+        p.imagemUrl = p.imagens[0].url;
+      }
+      renderProdutoDetalhe(p, container);
+      renderProdutosGrid();
+      showToast('Fotos adicionadas.');
+    });
+
+    container.querySelectorAll('[data-rm-imagem]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var imgId = btn.dataset.rmImagem;
+        if(!confirm('Remover esta foto?')) return;
+        var { error } = await supabase.from('mv_produto_imagens').delete().eq('id', imgId);
+        if(error){ showToast('Erro ao remover foto: ' + error.message); return; }
+        p.imagens = p.imagens.filter(function(x){ return x.id!==imgId; });
+        if(p.imagens.length>0){
+          await supabase.from('mv_produtos').update({ imagem_url: p.imagens[0].url }).eq('id', p.id);
+          p.imagemUrl = p.imagens[0].url;
+        } else {
+          await supabase.from('mv_produtos').update({ imagem_url: null }).eq('id', p.id);
+          p.imagemUrl = null;
+        }
+        renderProdutoDetalhe(p, container);
+        renderProdutosGrid();
+        showToast('Foto removida.');
+      });
     });
 
     var addVar = document.getElementById('btnAddVariacao');
@@ -1842,6 +1943,194 @@
         renderPedidosLoja();
         showToast('Pedido cancelado.');
       });
+    });
+  }
+
+  // ---------- PARCEIROS ----------
+  function parceiroAtivo(p){
+    var hoje = new Date().toISOString().slice(0,10);
+    return !p.periodoFim || p.periodoFim >= hoje;
+  }
+
+  function renderParceiros(){
+    var ativosWrap = document.getElementById('parceirosAtivosLista');
+    var inativosWrap = document.getElementById('parceirosInativosLista');
+    var ativos = state.parceiros.filter(parceiroAtivo).sort(function(a,b){ return a.nome.localeCompare(b.nome,'pt-BR'); });
+    var inativos = state.parceiros.filter(function(p){ return !parceiroAtivo(p); }).sort(function(a,b){ return a.nome.localeCompare(b.nome,'pt-BR'); });
+
+    function periodoTexto(p){
+      var ini = p.periodoInicio ? fmtDate(p.periodoInicio) : '?';
+      var fim = p.periodoFim ? fmtDate(p.periodoFim) : '?';
+      return ini + ' até ' + fim;
+    }
+
+    if(ativos.length===0){
+      ativosWrap.innerHTML = '<div class="empty">Nenhum parceiro ativo no momento.</div>';
+    } else {
+      ativosWrap.innerHTML = ativos.map(function(p){
+        var linkWa = waLink(p.contato);
+        return '<div class="event-card" style="cursor:default;">' +
+          '<span class="badge badge-open">Ativo</span>' +
+          '<h4 style="margin-top:8px;">'+escapeHtml(p.nome)+'</h4>' +
+          '<div class="meta">'+escapeHtml(p.item||'')+'</div>' +
+          '<div class="meta" style="margin-top:2px;">'+periodoTexto(p)+'</div>' +
+          (p.instagram ? '<div class="meta">'+escapeHtml(p.instagram)+'</div>' : '') +
+          '<div class="actions-cell" style="margin-top:10px;justify-content:flex-start;">' +
+            (linkWa ? '<a class="btn-whatsapp icon-only" href="'+linkWa+'" target="_blank" rel="noopener" title="Abrir WhatsApp">'+WA_ICON_SVG+'</a>' : '') +
+            '<button class="btn-ghost btn-sm" data-editar-parceiro="'+p.id+'">Editar</button>' +
+            '<button class="btn-rose btn-sm" data-excluir-parceiro="'+p.id+'">Excluir</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    if(inativos.length===0){
+      inativosWrap.innerHTML = '<div class="empty">Nenhum parceiro inativo.</div>';
+    } else {
+      inativosWrap.innerHTML = inativos.map(function(p){
+        return '<div class="event-card" style="cursor:default;opacity:.75;">' +
+          '<span class="badge badge-closed">Inativo</span>' +
+          '<h4 style="margin-top:8px;">'+escapeHtml(p.nome)+'</h4>' +
+          '<div class="meta">'+escapeHtml(p.item||'')+'</div>' +
+          '<div class="meta" style="margin-top:2px;">'+periodoTexto(p)+'</div>' +
+          '<div class="actions-cell" style="margin-top:10px;justify-content:flex-start;">' +
+            '<button class="btn-gold btn-sm" data-renovar-parceiro="'+p.id+'">Renovar parceria</button>' +
+            '<button class="btn-rose btn-sm" data-excluir-parceiro="'+p.id+'">Excluir</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    document.querySelectorAll('[data-editar-parceiro]').forEach(function(btn){
+      btn.addEventListener('click', function(){ openEditParceiro(btn.dataset.editarParceiro); });
+    });
+    document.querySelectorAll('[data-renovar-parceiro]').forEach(function(btn){
+      btn.addEventListener('click', function(){ openRenovarParceiro(btn.dataset.renovarParceiro); });
+    });
+    document.querySelectorAll('[data-excluir-parceiro]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.dataset.excluirParceiro;
+        var p = state.parceiros.find(function(x){ return x.id===id; });
+        if(!p) return;
+        if(!confirm('Excluir o parceiro "'+p.nome+'"? Essa ação não pode ser desfeita.')) return;
+        var { error } = await supabase.from('mv_parceiros').delete().eq('id', id);
+        if(error){ showToast('Erro ao excluir: ' + error.message); return; }
+        state.parceiros = state.parceiros.filter(function(x){ return x.id!==id; });
+        renderParceiros();
+        showToast('Parceiro excluído.');
+      });
+    });
+  }
+
+  document.getElementById('pnContato').addEventListener('input', function(){ this.value = maskTel(this.value); });
+
+  document.getElementById('formParceiro').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var nome = document.getElementById('pnNome').value.trim();
+    var contato = document.getElementById('pnContato').value.trim();
+    var instagram = document.getElementById('pnInstagram').value.trim();
+    var item = document.getElementById('pnItem').value.trim();
+    var inicio = document.getElementById('pnInicio').value;
+    var fim = document.getElementById('pnFim').value;
+    if(!nome || !item || !fim){ showToast('Preencha nome, item da parceria e fim do período.'); return; }
+    var form = this;
+    var { data: row, error } = await supabase.from('mv_parceiros').insert({
+      nome: nome, contato_whatsapp: contato || null, instagram: instagram || null,
+      item_parceria: item, periodo_inicio: inicio || null, periodo_fim: fim
+    }).select().single();
+    if(error){ showToast('Erro ao cadastrar parceiro: ' + error.message); return; }
+    state.parceiros.push({ id: row.id, nome: row.nome, contato: row.contato_whatsapp, instagram: row.instagram, item: row.item_parceria, periodoInicio: row.periodo_inicio, periodoFim: row.periodo_fim });
+    form.reset();
+    renderParceiros();
+    showToast('Parceiro cadastrado com sucesso.');
+  });
+
+  function closeModalParceiro(){ document.getElementById('modalParceiroWrap').innerHTML = ''; }
+
+  function openEditParceiro(id){
+    var p = state.parceiros.find(function(x){ return x.id===id; });
+    if(!p) return;
+    var wrap = document.getElementById('modalParceiroWrap');
+    wrap.innerHTML =
+      '<div class="modal-overlay" id="parceiroOverlay">' +
+        '<div class="modal-box">' +
+          '<h2>Editar parceiro</h2>' +
+          '<div class="form-grid">' +
+            '<div><label for="epNome">Nome</label><input type="text" id="epNome" required></div>' +
+            '<div><label for="epContato">WhatsApp</label><input type="text" id="epContato" maxlength="15"></div>' +
+            '<div><label for="epInstagram">Instagram</label><input type="text" id="epInstagram"></div>' +
+            '<div style="grid-column:1/-1;"><label for="epItem">Item da parceria</label><input type="text" id="epItem" required></div>' +
+            '<div><label for="epInicio">Início</label><input type="date" id="epInicio"></div>' +
+            '<div><label for="epFim">Fim</label><input type="date" id="epFim" required></div>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;margin-top:8px;">' +
+            '<button class="btn-primary" id="btnSalvarParceiro">Salvar alterações</button>' +
+            '<button class="btn-ghost" id="btnCancelarParceiro">Cancelar</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.getElementById('epNome').value = p.nome||'';
+    document.getElementById('epContato').value = p.contato||'';
+    document.getElementById('epInstagram').value = p.instagram||'';
+    document.getElementById('epItem').value = p.item||'';
+    document.getElementById('epInicio').value = p.periodoInicio||'';
+    document.getElementById('epFim').value = p.periodoFim||'';
+    document.getElementById('epContato').addEventListener('input', function(){ this.value = maskTel(this.value); });
+    document.getElementById('btnCancelarParceiro').addEventListener('click', closeModalParceiro);
+    document.getElementById('parceiroOverlay').addEventListener('click', function(e){ if(e.target.id==='parceiroOverlay') closeModalParceiro(); });
+    document.getElementById('btnSalvarParceiro').addEventListener('click', async function(){
+      var novoNome = document.getElementById('epNome').value.trim();
+      var novoContato = document.getElementById('epContato').value.trim();
+      var novoInstagram = document.getElementById('epInstagram').value.trim();
+      var novoItem = document.getElementById('epItem').value.trim();
+      var novoInicio = document.getElementById('epInicio').value;
+      var novoFim = document.getElementById('epFim').value;
+      if(!novoNome || !novoItem || !novoFim){ showToast('Preencha nome, item da parceria e fim do período.'); return; }
+      var { error } = await supabase.from('mv_parceiros').update({
+        nome: novoNome, contato_whatsapp: novoContato || null, instagram: novoInstagram || null,
+        item_parceria: novoItem, periodo_inicio: novoInicio || null, periodo_fim: novoFim
+      }).eq('id', p.id);
+      if(error){ showToast('Erro ao salvar: ' + error.message); return; }
+      p.nome = novoNome; p.contato = novoContato; p.instagram = novoInstagram; p.item = novoItem;
+      p.periodoInicio = novoInicio; p.periodoFim = novoFim;
+      closeModalParceiro();
+      renderParceiros();
+      showToast('Parceiro atualizado.');
+    });
+  }
+
+  function openRenovarParceiro(id){
+    var p = state.parceiros.find(function(x){ return x.id===id; });
+    if(!p) return;
+    var wrap = document.getElementById('modalParceiroWrap');
+    var hoje = new Date().toISOString().slice(0,10);
+    wrap.innerHTML =
+      '<div class="modal-overlay" id="parceiroOverlay">' +
+        '<div class="modal-box">' +
+          '<h2>Renovar parceria</h2>' +
+          '<p style="font-size:.85rem;color:var(--olive-deep);margin-top:-8px;">'+escapeHtml(p.nome)+'</p>' +
+          '<div class="form-grid">' +
+            '<div><label for="rpInicio">Novo início</label><input type="date" id="rpInicio" value="'+hoje+'"></div>' +
+            '<div><label for="rpFim">Nova data de fim</label><input type="date" id="rpFim" required></div>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;margin-top:8px;">' +
+            '<button class="btn-gold" id="btnConfirmarRenovacao">Confirmar renovação</button>' +
+            '<button class="btn-ghost" id="btnCancelarParceiro">Cancelar</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.getElementById('btnCancelarParceiro').addEventListener('click', closeModalParceiro);
+    document.getElementById('parceiroOverlay').addEventListener('click', function(e){ if(e.target.id==='parceiroOverlay') closeModalParceiro(); });
+    document.getElementById('btnConfirmarRenovacao').addEventListener('click', async function(){
+      var novoInicio = document.getElementById('rpInicio').value;
+      var novoFim = document.getElementById('rpFim').value;
+      if(!novoFim){ showToast('Informe a nova data de fim.'); return; }
+      var { error } = await supabase.from('mv_parceiros').update({ periodo_inicio: novoInicio || null, periodo_fim: novoFim }).eq('id', p.id);
+      if(error){ showToast('Erro ao renovar: ' + error.message); return; }
+      p.periodoInicio = novoInicio; p.periodoFim = novoFim;
+      closeModalParceiro();
+      renderParceiros();
+      showToast('Parceria renovada.');
     });
   }
 
