@@ -68,6 +68,46 @@
   .input-field:focus { outline:2px solid var(--gold); outline-offset:1px; }
   .modal-enter { animation: modalIn .18s ease-out; }
   @keyframes modalIn { from { opacity:0; transform: scale(.97); } to { opacity:1; transform: scale(1); } }
+
+  /* ---------- Abas Eventos / Produtos ---------- */
+  .tab-btn {
+    flex:1; text-align:center; padding:11px 10px; border-radius:999px; font-weight:600; font-size:.88rem;
+    border:1px solid var(--line); color:var(--olive-deep); background:#fff; transition:all .15s ease;
+  }
+  .tab-btn.active { background:var(--olive-deep); color:var(--cream); border-color:var(--olive-deep); }
+
+  /* ---------- Produtos ---------- */
+  .produto-card {
+    background:#fff; border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow);
+    overflow:hidden; display:flex; flex-direction:column;
+  }
+  .produto-img { width:100%; aspect-ratio:1/1; object-fit:cover; background:var(--cream-dim); display:block; }
+  .produto-img-placeholder { width:100%; aspect-ratio:1/1; display:flex; align-items:center; justify-content:center; background:var(--cream-dim); }
+  .qty-stepper { display:flex; align-items:center; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .qty-stepper button { width:34px; height:34px; background:var(--cream-dim); color:var(--olive-deep); font-size:1rem; font-weight:700; line-height:1; border:none; }
+  .qty-stepper button:active { background:var(--olive-soft); color:#fff; }
+  .qty-stepper span { width:32px; text-align:center; font-size:.9rem; font-weight:600; }
+  .cart-fab {
+    position:fixed; bottom:18px; right:18px; z-index:45; display:flex; align-items:center; gap:8px;
+    padding:13px 18px; border-radius:999px; box-shadow:0 8px 24px rgba(63,66,44,.30);
+    background:var(--olive-deep); color:var(--cream); font-weight:600; font-size:.9rem; border:none;
+  }
+  .cart-fab .badge { background:var(--rose); color:#fff; border-radius:999px; min-width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; font-size:.72rem; font-weight:700; padding:0 5px; }
+
+  /* ---------- Melhorias mobile ---------- */
+  @media(max-width:640px){
+    body { -webkit-tap-highlight-color: transparent; }
+    .min-h-screen { padding-left:14px !important; padding-right:14px !important; padding-top:20px !important; }
+    button, .input-field, select { font-size:16px; } /* evita zoom automático em iOS ao focar input */
+    .modal-enter, .card.p-6 { padding:18px !important; }
+    .produto-card .p-4 { padding:12px !important; }
+  }
+  @media(max-width:480px){
+    .cart-fab { right:14px; bottom:14px; padding:12px 16px; font-size:.85rem; }
+  }
+
+  .input-field, input[type=file] { border:1px solid var(--line); border-radius:8px; padding:9px 11px; font-size:.9rem; width:100%; margin-bottom:0; }
+
   @media(max-width:520px){
     .card { flex-direction:column; }
     .card-img { width:100%; height:auto; max-height:340px; object-fit:contain; background:var(--cream-dim); }
@@ -99,6 +139,7 @@ const LOGO_ICON_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAl8AAAHMCAYAAADrpc1tAABd9klEQVR4n
 // ==============================================================
 
 const ORDER_MARKER = '#PEDIDO-INGRESSO#';
+const ORDER_MARKER_PRODUTO = '#PEDIDO-PRODUTO#';
 
 const root = document.getElementById('root');
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -185,7 +226,67 @@ function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 
-let state = { events: [], loading: true, modalEvent: null, modalError: '', progEvent: null, progItens: [], progLoading: false, detalhesEvent: null };
+let state = {
+  events: [], loading: true, modalEvent: null, modalError: '', progEvent: null, progItens: [], progLoading: false, detalhesEvent: null,
+  tab: 'eventos', produtos: [], produtosLoading: true,
+  cart: [], cartOpen: false, checkoutError: ''
+};
+
+async function loadProdutos() {
+  const { data, error } = await supabase.from('mv_produtos').select('*, mv_produto_variacoes(*)').eq('ativo', true).order('nome');
+  if (error) { console.error(error); return []; }
+  return data;
+}
+
+// ------------------ Carrinho ------------------
+function cartKey(produtoId, variacaoId) { return produtoId + '|' + (variacaoId || ''); }
+
+function cartAdd(produto, variacao, quantidade) {
+  const key = cartKey(produto.id, variacao ? variacao.id : null);
+  const estoqueMax = variacao ? variacao.estoque : (produto.estoque == null ? 999 : produto.estoque);
+  const existente = state.cart.find(it => it.key === key);
+  if (existente) {
+    existente.quantidade = Math.min(existente.quantidade + quantidade, estoqueMax);
+  } else {
+    state.cart.push({
+      key, produtoId: produto.id, produtoNome: produto.nome,
+      variacaoId: variacao ? variacao.id : null, variacaoNome: variacao ? variacao.nome : null,
+      preco: Number(produto.preco) || 0, quantidade: Math.min(quantidade, estoqueMax), estoqueMax
+    });
+  }
+}
+function cartSetQty(key, qty) {
+  const it = state.cart.find(x => x.key === key);
+  if (!it) return;
+  it.quantidade = Math.max(1, Math.min(qty, it.estoqueMax));
+}
+function cartRemove(key) { state.cart = state.cart.filter(it => it.key !== key); }
+function cartTotal() { return state.cart.reduce((s, it) => s + it.preco * it.quantidade, 0); }
+function cartCount() { return state.cart.reduce((s, it) => s + it.quantidade, 0); }
+
+function buildOrderMessageProdutos(itens, formaPagamento, nomeCompleto, valorTotal) {
+  const linhas = itens.map(it => `• ${it.quantidade}x ${it.produtoNome}${it.variacaoNome ? ' (' + it.variacaoNome + ')' : ''} — ${fmtBRL(it.preco * it.quantidade)}`);
+  return [
+    ORDER_MARKER_PRODUTO,
+    `Nome: ${nomeCompleto}`,
+    'Itens:',
+    ...linhas,
+    `Total: ${fmtBRL(valorTotal)}`,
+    `Pagamento: ${formaPagamento}`,
+  ].join('\n');
+}
+
+async function registrarPedidoLoja(mulherId, itens, valorTotal, formaPagamento) {
+  const itensSnapshot = itens.map(it => ({
+    produto_id: it.produtoId, produto_nome: it.produtoNome,
+    variacao_id: it.variacaoId || null, variacao_nome: it.variacaoNome || null,
+    quantidade: it.quantidade, preco_unitario: it.preco
+  }));
+  const { error } = await supabase.from('mv_pedidos_loja').insert({
+    mulher_id: mulherId, itens: itensSnapshot, valor_total: valorTotal, forma_pagamento: formaPagamento, status: 'pendente'
+  });
+  if (error) console.error('Erro ao registrar pedido da loja:', error);
+}
 
 async function loadEvents() {
   const { data, error } = await supabase.from('mv_eventos').select('*');
@@ -198,15 +299,15 @@ async function loadEvents() {
 function render() {
   root.innerHTML = '';
   const wrap = document.createElement('div');
-  wrap.className = 'min-h-screen px-4 py-10 md:py-16';
+  wrap.className = 'min-h-screen px-4 py-8 md:py-16';
   wrap.innerHTML = `
     <div class="max-w-3xl mx-auto">
-      <div class="flex items-center justify-between gap-4 mb-12 flex-wrap">
-        <div class="flex items-center gap-4">
-          <img src="data:image/png;base64,${LOGO_ICON_B64}" alt="" style="width:96px;height:auto;flex-shrink:0;">
+      <div class="flex items-center justify-between gap-4 mb-8 md:mb-12 flex-wrap">
+        <div class="flex items-center gap-3 md:gap-4">
+          <img src="data:image/png;base64,${LOGO_ICON_B64}" alt="" style="width:64px;height:auto;flex-shrink:0;" class="md:!w-24">
           <div class="display leading-tight" style="color:var(--olive-deep);">
-            <div style="font-size:2.1rem;font-weight:400;">mulheres</div>
-            <div style="font-size:2.1rem;font-weight:400;margin-top:-8px;">que voam</div>
+            <div style="font-size:1.6rem;font-weight:400;" class="md:!text-4xl">mulheres</div>
+            <div style="font-size:1.6rem;font-weight:400;margin-top:-6px;" class="md:!text-4xl md:!-mt-2">que voam</div>
           </div>
         </div>
         <a href="https://www.instagram.com/mulheresquevoam1?igsh=ZG5uem9uZXAxemEy" target="_blank" rel="noopener"
@@ -215,14 +316,40 @@ function render() {
           Seguir no Instagram
         </a>
       </div>
-      <div class="mb-8">
-        <div style="color:var(--olive);font-size:.72rem;letter-spacing:.25em;text-transform:uppercase;margin-bottom:6px;">Eventos</div>
-        <h1 class="display" style="color:var(--ink);font-size:2rem;font-weight:500;">Ingressos disponíveis</h1>
+
+      <div class="flex gap-2 mb-8">
+        <button data-tab="eventos" class="tab-btn ${state.tab === 'eventos' ? 'active' : ''}">Eventos</button>
+        <button data-tab="produtos" class="tab-btn ${state.tab === 'produtos' ? 'active' : ''}">Nossos Produtos</button>
       </div>
-      <div id="list" class="space-y-6"></div>
+
+      <div id="tab-eventos" style="${state.tab === 'eventos' ? '' : 'display:none;'}">
+        <div class="mb-6">
+          <div style="color:var(--olive);font-size:.72rem;letter-spacing:.25em;text-transform:uppercase;margin-bottom:6px;">Eventos</div>
+          <h1 class="display" style="color:var(--ink);font-size:1.6rem;font-weight:500;">Ingressos disponíveis</h1>
+        </div>
+        <div id="list" class="space-y-6"></div>
+      </div>
+
+      <div id="tab-produtos" style="${state.tab === 'produtos' ? '' : 'display:none;'}">
+        <div class="mb-6">
+          <div style="color:var(--olive);font-size:.72rem;letter-spacing:.25em;text-transform:uppercase;margin-bottom:6px;">Loja</div>
+          <h1 class="display" style="color:var(--ink);font-size:1.6rem;font-weight:500;">Nossos produtos</h1>
+        </div>
+        <div id="produtos-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-5"></div>
+      </div>
     </div>
   `;
   root.appendChild(wrap);
+
+  wrap.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.tab = btn.dataset.tab;
+      if (state.tab === 'produtos' && state.produtos.length === 0 && state.produtosLoading) {
+        loadProdutos().then(data => { state.produtos = data; state.produtosLoading = false; render(); });
+      }
+      render();
+    });
+  });
 
   const list = wrap.querySelector('#list');
   if (state.loading) {
@@ -270,9 +397,100 @@ function render() {
     });
   }
 
+  if (state.tab === 'produtos') renderProdutosGrid(wrap);
+
+  if (state.cart.length > 0) {
+    const fab = document.createElement('button');
+    fab.className = 'cart-fab';
+    fab.innerHTML = `🛍️ Carrinho <span class="badge">${cartCount()}</span> · ${fmtBRL(cartTotal())}`;
+    fab.addEventListener('click', () => { state.cartOpen = true; render(); });
+    root.appendChild(fab);
+  }
+
   if (state.modalEvent) renderModal(wrap);
   if (state.progEvent) renderProgramacaoModal(wrap);
   if (state.detalhesEvent) renderDetalhesModal(wrap);
+  if (state.cartOpen) renderCartModal(wrap);
+}
+
+function renderProdutosGrid(wrap) {
+  const grid = wrap.querySelector('#produtos-grid');
+  if (state.produtosLoading) {
+    grid.innerHTML = `<div style="color:var(--olive);grid-column:1/-1;">Carregando produtos...</div>`;
+    return;
+  }
+  if (state.produtos.length === 0) {
+    grid.innerHTML = `<div class="card p-8 text-center" style="color:var(--olive);grid-column:1/-1;">Nenhum produto disponível no momento.</div>`;
+    return;
+  }
+  grid.innerHTML = '';
+  state.produtos.forEach(p => {
+    const variacoes = (p.mv_produto_variacoes || []).filter(v => v.estoque > 0);
+    const semEstoque = p.tem_variacao ? variacoes.length === 0 : (p.estoque != null && p.estoque <= 0);
+    const imgHtml = p.imagem_url
+      ? `<img src="${p.imagem_url}" class="produto-img" alt="${p.nome}">`
+      : `<div class="produto-img-placeholder"><img src="data:image/png;base64,${LOGO_ICON_B64}" style="width:40px;opacity:.35;"></div>`;
+    const variantSelectHtml = p.tem_variacao
+      ? `<select class="input-field text-sm mt-2 variacao-select" data-produto-id="${p.id}" ${semEstoque ? 'disabled' : ''}>
+          ${variacoes.map(v => `<option value="${v.id}">${escapeHtml(v.nome)} (${v.estoque} em estoque)</option>`).join('')}
+         </select>`
+      : '';
+    const card = document.createElement('div');
+    card.className = 'produto-card';
+    card.innerHTML = `
+      ${imgHtml}
+      <div class="p-4 flex-1 flex flex-col">
+        <div class="display" style="font-size:.95rem;font-weight:500;color:var(--ink);">${escapeHtml(p.nome)}</div>
+        ${p.descricao ? `<div style="font-size:.78rem;color:var(--olive);margin-top:2px;">${escapeHtml(p.descricao)}</div>` : ''}
+        ${variantSelectHtml}
+        <div class="flex items-center justify-between mt-2">
+          <div class="font-bold" style="color:var(--sage-dark);font-size:1rem;">${fmtBRL(p.preco)}</div>
+          <div class="qty-stepper" data-produto-id="${p.id}">
+            <button type="button" class="qty-menos">−</button>
+            <span class="qty-valor">1</span>
+            <button type="button" class="qty-mais">+</button>
+          </div>
+        </div>
+        <button class="add-cart-btn btn-primary w-full mt-3 py-2 rounded-lg text-sm font-semibold" data-produto-id="${p.id}" ${semEstoque ? 'disabled' : ''}>
+          ${semEstoque ? 'Sem estoque' : 'Adicionar ao carrinho'}
+        </button>
+      </div>
+    `;
+    grid.appendChild(card);
+
+    if (semEstoque) return;
+
+    const qtyStepper = card.querySelector('.qty-stepper');
+    const qtyValor = qtyStepper.querySelector('.qty-valor');
+    function maxAtual() {
+      if (!p.tem_variacao) return p.estoque == null ? 999 : p.estoque;
+      const sel = card.querySelector('.variacao-select');
+      const v = variacoes.find(x => x.id === (sel ? sel.value : null));
+      return v ? v.estoque : 1;
+    }
+    qtyStepper.querySelector('.qty-mais').addEventListener('click', () => {
+      const atual = parseInt(qtyValor.textContent, 10);
+      qtyValor.textContent = Math.min(atual + 1, maxAtual());
+    });
+    qtyStepper.querySelector('.qty-menos').addEventListener('click', () => {
+      const atual = parseInt(qtyValor.textContent, 10);
+      qtyValor.textContent = Math.max(1, atual - 1);
+    });
+    const selectEl = card.querySelector('.variacao-select');
+    if (selectEl) selectEl.addEventListener('change', () => { qtyValor.textContent = '1'; });
+
+    card.querySelector('.add-cart-btn').addEventListener('click', () => {
+      const qtd = parseInt(qtyValor.textContent, 10) || 1;
+      let variacao = null;
+      if (p.tem_variacao) {
+        const sel = card.querySelector('.variacao-select');
+        variacao = variacoes.find(v => v.id === sel.value);
+        if (!variacao) return;
+      }
+      cartAdd(p, variacao, qtd);
+      render();
+    });
+  });
 }
 
 function renderDetalhesModal(wrap) {
@@ -405,6 +623,123 @@ function renderModal(wrap) {
     render();
   }));
   overlay.querySelector('#close-modal').addEventListener('click', () => { state.modalEvent = null; state.modalError = ''; render(); });
+}
+
+function renderCartModal(wrap) {
+  const overlay = document.createElement('div');
+  overlay.className = 'fixed inset-0 flex items-center justify-center p-4 z-50';
+  overlay.style.background = 'rgba(58,60,44,0.55)';
+
+  const itensHtml = state.cart.length === 0
+    ? `<div style="color:var(--olive);font-size:.85rem;padding:12px 0;">Seu carrinho está vazio.</div>`
+    : state.cart.map(it => `
+        <div class="flex items-center justify-between gap-2 py-2" style="border-bottom:1px solid var(--line);">
+          <div class="flex-1">
+            <div style="font-size:.88rem;font-weight:600;color:var(--ink);">${escapeHtml(it.produtoNome)}${it.variacaoNome ? ' <span style="color:var(--olive);font-weight:400;">(' + escapeHtml(it.variacaoNome) + ')</span>' : ''}</div>
+            <div style="font-size:.78rem;color:var(--olive);">${fmtBRL(it.preco)} cada</div>
+          </div>
+          <div class="qty-stepper" data-key="${it.key}">
+            <button type="button" class="cart-qty-menos">−</button>
+            <span class="qty-valor">${it.quantidade}</span>
+            <button type="button" class="cart-qty-mais">+</button>
+          </div>
+          <div style="font-weight:700;font-size:.85rem;min-width:64px;text-align:right;color:var(--sage-dark);">${fmtBRL(it.preco * it.quantidade)}</div>
+          <button class="cart-remove text-xs" data-key="${it.key}" style="color:var(--rose-dark);">✕</button>
+        </div>
+      `).join('');
+
+  overlay.innerHTML = `
+    <div class="modal-enter card p-6 max-w-sm w-full" style="max-height:90vh;overflow-y:auto;">
+      <div class="display" style="font-size:1.15rem;font-weight:500;color:var(--ink);margin-bottom:4px;">Meu carrinho</div>
+      <div id="cart-itens">${itensHtml}</div>
+
+      ${state.cart.length > 0 ? `
+      <div class="flex items-center justify-between mt-3 mb-4">
+        <div style="font-size:.9rem;color:var(--olive);">Total</div>
+        <div style="font-weight:700;font-size:1.15rem;color:var(--sage-dark);">${fmtBRL(cartTotal())}</div>
+      </div>
+
+      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">Nome completo</label>
+      <input id="cart-nome" type="text" placeholder="Seu nome completo" class="input-field mb-3">
+
+      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">WhatsApp</label>
+      <input id="cart-tel" type="tel" placeholder="(71) 99999-9999" class="input-field mb-3">
+
+      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">CPF</label>
+      <input id="cart-cpf" type="text" placeholder="000.000.000-00" maxlength="14" class="input-field mb-3">
+
+      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">Data de nascimento</label>
+      <input id="cart-nasc" type="date" class="input-field mb-3">
+
+      <div style="color:var(--rose-dark);font-size:.78rem;min-height:1em;margin-bottom:8px;">${state.checkoutError || ''}</div>
+
+      <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:14px;">
+        <input id="cart-consentimento" type="checkbox" style="margin-top:3px;">
+        <label for="cart-consentimento" style="font-size:.78rem;color:var(--ink);font-weight:400;">
+          Autorizo o uso dos meus dados (nome, CPF, data de nascimento e WhatsApp) para
+          confirmar este pedido e para receber comunicações sobre futuros eventos e
+          campanhas do Mulheres que Voam.
+        </label>
+      </div>
+
+      <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:8px;">Forma de pagamento</label>
+      <div class="flex gap-2 mb-5">
+        <button data-method="Pix" class="cart-pay-btn btn-outline flex-1 py-2 rounded-lg text-sm font-medium">Pix</button>
+        <button data-method="Cartão de crédito" class="cart-pay-btn btn-outline flex-1 py-2 rounded-lg text-sm font-medium">Cartão</button>
+      </div>
+      ` : ''}
+      <button id="close-cart-modal" class="text-xs underline" style="color:var(--olive);">fechar</button>
+    </div>`;
+  wrap.appendChild(overlay);
+
+  overlay.querySelectorAll('.qty-stepper').forEach(stepper => {
+    const key = stepper.dataset.key;
+    const item = state.cart.find(it => it.key === key);
+    stepper.querySelector('.cart-qty-mais').addEventListener('click', () => { cartSetQty(key, item.quantidade + 1); render(); });
+    stepper.querySelector('.cart-qty-menos').addEventListener('click', () => {
+      if (item.quantidade <= 1) { cartRemove(key); } else { cartSetQty(key, item.quantidade - 1); }
+      render();
+    });
+  });
+  overlay.querySelectorAll('.cart-remove').forEach(btn => {
+    btn.addEventListener('click', () => { cartRemove(btn.dataset.key); render(); });
+  });
+
+  const cpfInput = overlay.querySelector('#cart-cpf');
+  if (cpfInput) cpfInput.addEventListener('input', (e) => { e.target.value = maskCPF(e.target.value); });
+
+  overlay.querySelectorAll('.cart-pay-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const nome = overlay.querySelector('#cart-nome').value.trim();
+    const tel = overlay.querySelector('#cart-tel').value.trim();
+    const cpf = overlay.querySelector('#cart-cpf').value.trim();
+    const nasc = overlay.querySelector('#cart-nasc').value;
+    const consentiu = overlay.querySelector('#cart-consentimento').checked;
+    if (!isNomeValido(nome)) { state.checkoutError = 'Informe seu nome completo (nome e sobrenome).'; render(); return; }
+    if (!isTelValido(tel)) { state.checkoutError = 'Informe um WhatsApp válido, com DDD.'; render(); return; }
+    if (!isCpfValido(cpf)) { state.checkoutError = 'Informe um CPF válido.'; render(); return; }
+    if (!nasc) { state.checkoutError = 'Informe sua data de nascimento.'; render(); return; }
+    if (!consentiu) { state.checkoutError = 'É preciso autorizar o uso dos dados para continuar.'; render(); return; }
+    state.checkoutError = '';
+    btn.disabled = true;
+    btn.textContent = 'Aguarde...';
+
+    const novaJanela = window.open('', '_blank');
+
+    const mulherId = await registrarMulher(nome, tel, cpf, nasc);
+    const itensPedido = state.cart.slice();
+    const total = cartTotal();
+    await registrarPedidoLoja(mulherId, itensPedido, total, btn.dataset.method);
+
+    const msg = buildOrderMessageProdutos(itensPedido, btn.dataset.method, nome, total);
+    const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
+    if (novaJanela) { novaJanela.location.href = url; } else { window.location.href = url; }
+
+    state.cart = [];
+    state.cartOpen = false;
+    render();
+  }));
+
+  overlay.querySelector('#close-cart-modal').addEventListener('click', () => { state.cartOpen = false; state.checkoutError = ''; render(); });
 }
 
 (async () => {
