@@ -76,13 +76,13 @@
 
   /* ---------- Faixa animada da marca (discreta) ---------- */
   .brand-banner-wrap {
-    border-radius:14px; overflow:hidden; box-shadow:0 4px 14px rgba(63,66,44,.10);
-    border:1px solid var(--line);
+    border-radius:12px; overflow:hidden; box-shadow:0 3px 10px rgba(63,66,44,.08);
+    border:1px solid var(--line); max-width:520px; margin-left:auto; margin-right:auto;
   }
-  .brand-banner { width:100%; height:auto; display:block; max-height:120px; object-fit:cover; }
+  .brand-banner { width:100%; height:auto; display:block; max-height:70px; object-fit:cover; }
   @media(max-width:480px){
-    .brand-banner-wrap{ border-radius:10px; }
-    .brand-banner{ max-height:74px; }
+    .brand-banner-wrap{ border-radius:9px; max-width:100%; }
+    .brand-banner{ max-height:52px; }
   }
   .input-field { border:1px solid var(--line); border-radius:8px; padding:9px 11px; font-size:.9rem; width:100%; }
   .input-field:focus { outline:2px solid var(--gold); outline-offset:1px; }
@@ -436,13 +436,13 @@ function render() {
         </a>
       </div>
 
-      <div class="brand-banner-wrap mb-8">
-        <img src="data:image/gif;base64,${BRAND_BANNER_GIF_B64}" alt="Mulheres que Voam" class="brand-banner" loading="lazy">
-      </div>
-
       <div class="flex gap-2 mb-8">
         <button data-tab="eventos" class="tab-btn ${state.tab === 'eventos' ? 'active' : ''}">Eventos</button>
         <button data-tab="produtos" class="tab-btn ${state.tab === 'produtos' ? 'active' : ''}">Loja MQV</button>
+      </div>
+
+      <div class="brand-banner-wrap mb-8">
+        <img src="data:image/gif;base64,${BRAND_BANNER_GIF_B64}" alt="Mulheres que Voam" class="brand-banner" loading="lazy">
       </div>
 
       <div id="tab-eventos" style="${state.tab === 'eventos' ? '' : 'display:none;'}">
