@@ -1479,11 +1479,11 @@
     var produtosRes = await supabase.from('mv_produtos').select('*, mv_produto_variacoes(*), mv_produto_imagens(*)').order('nome');
     var pedidosLojaRes = await supabase.from('mv_pedidos_loja')
       .select('*, mv_mulheres(nome,tel)')
-      .eq('status', 'pendente').order('created_at', { ascending: true });
+      .order('created_at', { ascending: false }).limit(300);
     var parceirosRes = await supabase.from('mv_parceiros').select('*').order('nome');
     var primeiroDiaMes = new Date(); primeiroDiaMes.setDate(1); primeiroDiaMes.setHours(0,0,0,0);
     var vendasMesRes = await supabase.from('mv_pedidos_loja')
-      .select('itens, valor_total, resolved_at')
+      .select('id, itens, valor_total, resolved_at')
       .eq('status', 'baixado')
       .gte('resolved_at', primeiroDiaMes.toISOString());
     if(mulheresRes.error || eventosRes.error || participantesRes.error || custosRes.error || programacaoRes.error){
@@ -1531,11 +1531,11 @@
         imagens: imagens
       };
     });
-    state.vendasMes = (vendasMesRes.data || []).map(function(v){ return { itens: v.itens || [], valorTotal: v.valor_total, resolvedAt: v.resolved_at }; });
+    state.vendasMes = (vendasMesRes.data || []).map(function(v){ return { pedidoId: v.id, itens: v.itens || [], valorTotal: v.valor_total, resolvedAt: v.resolved_at }; });
     state.pedidosLoja = (pedidosLojaRes.data || []).map(function(p){
       return {
         id: p.id, mulherId: p.mulher_id, itens: p.itens || [], valorTotal: p.valor_total,
-        formaPagamento: p.forma_pagamento, createdAt: p.created_at,
+        formaPagamento: p.forma_pagamento, createdAt: p.created_at, status: p.status, resolvedAt: p.resolved_at,
         mulherNome: p.mv_mulheres ? p.mv_mulheres.nome : '(cliente removida)',
         mulherTel: p.mv_mulheres ? p.mv_mulheres.tel : ''
       };
@@ -1558,7 +1558,7 @@
 
   function atualizarBadgePedidosLoja(){
     var badge = document.getElementById('badgePedidosLoja');
-    var n = state.pedidosLoja.length;
+    var n = state.pedidosLoja.filter(function(p){ return p.status==='pendente'; }).length;
     if(n>0){ badge.style.display=''; badge.textContent = n; } else { badge.style.display='none'; }
   }
 
@@ -1984,39 +1984,102 @@
   }
 
   // ---------- PEDIDOS LOJA ----------
+  // Ajusta o estoque de cada item de um pedido. sinal=-1 dá baixa (desconta),
+  // sinal=+1 revoga a baixa ou restaura o estoque (soma de volta).
+  async function ajustarEstoquePedido(itens, sinal){
+    for(var i=0;i<itens.length;i++){
+      var it = itens[i];
+      if(it.variacao_id){
+        var vAtual = await supabase.from('mv_produto_variacoes').select('estoque').eq('id', it.variacao_id).maybeSingle();
+        var estoqueAtualV = (vAtual.data ? vAtual.data.estoque : 0) + (sinal * it.quantidade);
+        estoqueAtualV = Math.max(0, estoqueAtualV);
+        await supabase.from('mv_produto_variacoes').update({ estoque: estoqueAtualV }).eq('id', it.variacao_id);
+        var produtoLocalV = state.produtos.find(function(pp){ return pp.variacoes.some(function(v){ return v.id===it.variacao_id; }); });
+        if(produtoLocalV){
+          var vLocal = produtoLocalV.variacoes.find(function(v){ return v.id===it.variacao_id; });
+          if(vLocal){ vLocal.estoque = estoqueAtualV; }
+        }
+      } else if(it.produto_id){
+        var pAtual = await supabase.from('mv_produtos').select('estoque').eq('id', it.produto_id).maybeSingle();
+        if(pAtual.data && pAtual.data.estoque != null){
+          var estoqueAtualP = Math.max(0, pAtual.data.estoque + (sinal * it.quantidade));
+          await supabase.from('mv_produtos').update({ estoque: estoqueAtualP }).eq('id', it.produto_id);
+          var produtoLocalP = state.produtos.find(function(pp){ return pp.id===it.produto_id; });
+          if(produtoLocalP){ produtoLocalP.estoque = estoqueAtualP; }
+        }
+      }
+    }
+  }
+
   function renderPedidosLoja(){
     var wrap = document.getElementById('pedidosLojaLista');
     if(state.pedidosLoja.length===0){
-      wrap.innerHTML = '<div class="empty">Nenhum pedido da loja aguardando baixa no momento.</div>';
+      wrap.innerHTML = '<div class="empty">Nenhum pedido da loja registrado ainda.</div>';
       return;
     }
-    wrap.innerHTML = state.pedidosLoja.map(function(ped){
-      var link = waLink(ped.mulherTel);
-      var itensHtml = ped.itens.map(function(it){
+
+    function itensHtmlDe(ped){
+      return ped.itens.map(function(it){
         return '<div style="display:flex;justify-content:space-between;font-size:.85rem;padding:4px 0;border-bottom:1px dashed var(--line);">' +
           '<span>'+it.quantidade+'x '+escapeHtml(it.produto_nome)+(it.variacao_nome?' ('+escapeHtml(it.variacao_nome)+')':'')+'</span>' +
           '<span>'+fmtMoney(it.preco_unitario * it.quantidade)+'</span>' +
         '</div>';
       }).join('');
+    }
+
+    function cardPedido(ped, acoesHtml, badgeHtml){
+      var link = waLink(ped.mulherTel);
       return '<div class="panel" style="margin-bottom:12px;">' +
         '<div class="row" style="margin-bottom:10px;">' +
           '<div>' +
             '<h3 style="margin:0 0 3px;">'+escapeHtml(ped.mulherNome)+'</h3>' +
-            '<div style="font-size:.78rem;color:var(--olive-soft);">Pedido em '+fmtDate(ped.createdAt ? ped.createdAt.slice(0,10) : '')+'</div>' +
+            '<div style="font-size:.78rem;color:var(--olive-soft);">Pedido em '+fmtDate(ped.createdAt ? ped.createdAt.slice(0,10) : '')+
+              (ped.resolvedAt ? ' · Resolvido em '+fmtDate(ped.resolvedAt.slice(0,10)) : '')+'</div>' +
           '</div>' +
-          (link ? '<a class="btn-whatsapp icon-only" href="'+link+'" target="_blank" rel="noopener" title="Abrir WhatsApp">'+WA_ICON_SVG+'</a>' : '') +
+          '<div style="display:flex;align-items:center;gap:8px;">' + badgeHtml +
+            (link ? '<a class="btn-whatsapp icon-only" href="'+link+'" target="_blank" rel="noopener" title="Abrir WhatsApp">'+WA_ICON_SVG+'</a>' : '') +
+          '</div>' +
         '</div>' +
-        '<div style="margin-bottom:10px;">'+itensHtml+'</div>' +
+        '<div style="margin-bottom:10px;">'+itensHtmlDe(ped)+'</div>' +
         '<div class="row" style="margin-bottom:12px;">' +
           '<div style="font-size:.85rem;color:var(--olive-deep);">Pagamento: '+escapeHtml(ped.formaPagamento||'—')+'</div>' +
           '<div style="font-weight:700;color:var(--sage-dark);">Total: '+fmtMoney(ped.valorTotal)+'</div>' +
         '</div>' +
-        '<div style="display:flex;gap:8px;">' +
-          '<button class="btn-gold btn-sm" data-baixa-pedido="'+ped.id+'">✓ Dar baixa no estoque</button>' +
-          '<button class="btn-rose btn-sm" data-cancelar-pedido="'+ped.id+'">Cancelar pedido</button>' +
-        '</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+acoesHtml+'</div>' +
       '</div>';
-    }).join('');
+    }
+
+    var pendentes = state.pedidosLoja.filter(function(p){ return p.status==='pendente'; });
+    var baixados = state.pedidosLoja.filter(function(p){ return p.status==='baixado'; });
+    var cancelados = state.pedidosLoja.filter(function(p){ return p.status==='cancelado'; });
+
+    var html = '';
+
+    html += '<h3 style="margin-bottom:10px;">Aguardando baixa ('+pendentes.length+')</h3>';
+    html += pendentes.length===0 ? '<div class="empty" style="margin-bottom:20px;">Nenhum pedido pendente.</div>' :
+      pendentes.map(function(ped){
+        var acoes = '<button class="btn-gold btn-sm" data-baixa-pedido="'+ped.id+'">✓ Dar baixa no estoque</button>' +
+          '<button class="btn-rose btn-sm" data-cancelar-pedido="'+ped.id+'">Cancelar pedido</button>' +
+          '<button class="btn-ghost btn-sm" data-excluir-pedido="'+ped.id+'">Excluir</button>';
+        return cardPedido(ped, acoes, '<span class="badge badge-open">Pendente</span>');
+      }).join('') ;
+
+    html += '<h3 style="margin:22px 0 10px;">Confirmados / com baixa dada ('+baixados.length+')</h3>';
+    html += baixados.length===0 ? '<div class="empty" style="margin-bottom:20px;">Nenhum pedido confirmado ainda.</div>' :
+      baixados.map(function(ped){
+        var acoes = '<button class="btn-gold btn-sm" data-revogar-baixa="'+ped.id+'">↺ Revogar baixa</button>' +
+          '<button class="btn-rose btn-sm" data-excluir-pedido="'+ped.id+'">Excluir</button>';
+        return cardPedido(ped, acoes, '<span class="badge badge-open" style="background:rgba(111,168,118,.2);color:var(--sage-dark);">Confirmado</span>');
+      }).join('');
+
+    html += '<h3 style="margin:22px 0 10px;">Cancelados ('+cancelados.length+')</h3>';
+    html += cancelados.length===0 ? '<div class="empty">Nenhum pedido cancelado.</div>' :
+      cancelados.map(function(ped){
+        var acoes = '<button class="btn-rose btn-sm" data-excluir-pedido="'+ped.id+'">Excluir</button>';
+        return cardPedido(ped, acoes, '<span class="badge badge-closed">Cancelado</span>');
+      }).join('');
+
+    wrap.innerHTML = html;
 
     wrap.querySelectorAll('[data-baixa-pedido]').forEach(function(btn){
       btn.addEventListener('click', async function(){
@@ -2026,33 +2089,13 @@
         if(!confirm('Confirmar baixa no estoque para o pedido de "'+ped.mulherNome+'"? Certifique-se de que o pagamento já foi confirmado.')) return;
         btn.disabled = true; btn.textContent = 'Processando...';
 
-        for(var i=0;i<ped.itens.length;i++){
-          var it = ped.itens[i];
-          if(it.variacao_id){
-            var vAtual = await supabase.from('mv_produto_variacoes').select('estoque').eq('id', it.variacao_id).maybeSingle();
-            var estoqueAtualV = (vAtual.data ? vAtual.data.estoque : 0) - it.quantidade;
-            await supabase.from('mv_produto_variacoes').update({ estoque: Math.max(0, estoqueAtualV) }).eq('id', it.variacao_id);
-            var produtoLocalV = state.produtos.find(function(pp){ return pp.variacoes.some(function(v){ return v.id===it.variacao_id; }); });
-            if(produtoLocalV){
-              var vLocal = produtoLocalV.variacoes.find(function(v){ return v.id===it.variacao_id; });
-              if(vLocal){ vLocal.estoque = Math.max(0, estoqueAtualV); }
-            }
-          } else if(it.produto_id){
-            var pAtual = await supabase.from('mv_produtos').select('estoque').eq('id', it.produto_id).maybeSingle();
-            if(pAtual.data && pAtual.data.estoque != null){
-              var estoqueAtualP = pAtual.data.estoque - it.quantidade;
-              await supabase.from('mv_produtos').update({ estoque: Math.max(0, estoqueAtualP) }).eq('id', it.produto_id);
-              var produtoLocalP = state.produtos.find(function(pp){ return pp.id===it.produto_id; });
-              if(produtoLocalP){ produtoLocalP.estoque = Math.max(0, estoqueAtualP); }
-            }
-          }
-        }
+        await ajustarEstoquePedido(ped.itens, -1);
 
         var resolvedAt = new Date().toISOString();
         var { error } = await supabase.from('mv_pedidos_loja').update({ status:'baixado', resolved_at: resolvedAt }).eq('id', id);
         if(error){ showToast('Erro ao finalizar baixa: ' + error.message); btn.disabled=false; btn.textContent='✓ Dar baixa no estoque'; return; }
-        state.pedidosLoja = state.pedidosLoja.filter(function(x){ return x.id!==id; });
-        state.vendasMes.push({ itens: ped.itens, valorTotal: ped.valorTotal, resolvedAt: resolvedAt });
+        ped.status = 'baixado'; ped.resolvedAt = resolvedAt;
+        state.vendasMes.push({ pedidoId: ped.id, itens: ped.itens, valorTotal: ped.valorTotal, resolvedAt: resolvedAt });
         atualizarBadgePedidosLoja();
         renderPedidosLoja();
         renderProdutosGrid();
@@ -2064,13 +2107,62 @@
     wrap.querySelectorAll('[data-cancelar-pedido]').forEach(function(btn){
       btn.addEventListener('click', async function(){
         var id = btn.dataset.cancelarPedido;
-        if(!confirm('Cancelar este pedido? O estoque não será alterado.')) return;
+        if(!confirm('Cancelar este pedido? O estoque não será alterado, pois a baixa ainda não tinha sido dada.')) return;
         var { error } = await supabase.from('mv_pedidos_loja').update({ status:'cancelado', resolved_at: new Date().toISOString() }).eq('id', id);
         if(error){ showToast('Erro ao cancelar: ' + error.message); return; }
-        state.pedidosLoja = state.pedidosLoja.filter(function(x){ return x.id!==id; });
+        var ped = state.pedidosLoja.find(function(x){ return x.id===id; });
+        if(ped){ ped.status = 'cancelado'; ped.resolvedAt = new Date().toISOString(); }
         atualizarBadgePedidosLoja();
         renderPedidosLoja();
         showToast('Pedido cancelado.');
+      });
+    });
+
+    wrap.querySelectorAll('[data-revogar-baixa]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.dataset.revogarBaixa;
+        var ped = state.pedidosLoja.find(function(x){ return x.id===id; });
+        if(!ped) return;
+        if(!confirm('Revogar a baixa deste pedido? O estoque volta ao que era antes da confirmação, e o pedido retorna para "Aguardando baixa".')) return;
+        btn.disabled = true; btn.textContent = 'Processando...';
+
+        await ajustarEstoquePedido(ped.itens, +1);
+
+        var { error } = await supabase.from('mv_pedidos_loja').update({ status:'pendente', resolved_at: null }).eq('id', id);
+        if(error){ showToast('Erro ao revogar: ' + error.message); btn.disabled=false; btn.textContent='↺ Revogar baixa'; return; }
+        ped.status = 'pendente'; ped.resolvedAt = null;
+        state.vendasMes = state.vendasMes.filter(function(v){ return v.pedidoId !== ped.id; });
+        atualizarBadgePedidosLoja();
+        renderPedidosLoja();
+        renderProdutosGrid();
+        renderDashboardLoja();
+        showToast('Baixa revogada — estoque restaurado.');
+      });
+    });
+
+    wrap.querySelectorAll('[data-excluir-pedido]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.dataset.excluirPedido;
+        var ped = state.pedidosLoja.find(function(x){ return x.id===id; });
+        if(!ped) return;
+        var precisaRestaurarEstoque = ped.status === 'baixado';
+        var msg = 'Excluir este pedido definitivamente?' + (precisaRestaurarEstoque ? ' Como a baixa já tinha sido dada, o estoque será restaurado.' : '');
+        if(!confirm(msg)) return;
+        btn.disabled = true; btn.textContent = 'Excluindo...';
+
+        if(precisaRestaurarEstoque){
+          await ajustarEstoquePedido(ped.itens, +1);
+        }
+
+        var { error } = await supabase.from('mv_pedidos_loja').delete().eq('id', id);
+        if(error){ showToast('Erro ao excluir: ' + error.message); btn.disabled=false; btn.textContent='Excluir'; return; }
+        state.pedidosLoja = state.pedidosLoja.filter(function(x){ return x.id!==id; });
+        if(precisaRestaurarEstoque){ state.vendasMes = state.vendasMes.filter(function(v){ return v.pedidoId !== ped.id; }); }
+        atualizarBadgePedidosLoja();
+        renderPedidosLoja();
+        renderProdutosGrid();
+        renderDashboardLoja();
+        showToast('Pedido excluído.' + (precisaRestaurarEstoque ? ' Estoque restaurado.' : ''));
       });
     });
   }
