@@ -282,6 +282,7 @@
     <nav class="sidebar-nav">
       <button data-view="mulheres" class="sidebar-link active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>Mulheres</span></button>
       <button data-view="eventos" class="sidebar-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg><span>Eventos</span></button>
+      <button data-view="destaques" class="sidebar-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg><span>Destaques</span></button>
       <button data-view="produtos" class="sidebar-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg><span>Produtos</span></button>
       <button data-view="pendencias" class="sidebar-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>Pendências</span><span id="badgePendencias" class="sidebar-badge" style="display:none;"></span></button>
       <button data-view="pedidosloja" class="sidebar-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V7l-9-4-9 4v1"/><path d="M3 8l9 4 9-4"/><path d="M3 8v9l9 4 9-4V8"/><path d="M12 12v9"/></svg><span>Pedidos Loja</span><span id="badgePedidosLoja" class="sidebar-badge" style="display:none;"></span></button>
@@ -405,6 +406,49 @@
 
     <!-- ============= DETALHE DO EVENTO ============= -->
     <div id="eventoDetalheWrap" style="display:none;"></div>
+  </section>
+
+  <!-- ================= DESTAQUES ================= -->
+  <section class="view" id="view-destaques">
+    <div class="panel">
+      <h2>Novo destaque</h2>
+      <p style="font-size:.82rem;color:var(--olive-soft);margin-top:-8px;">
+        Os destaques aparecem em um carrossel no topo do catálogo, acima das abas Eventos/Loja.
+        Use para divulgar lançamentos, promoções ou próximos eventos — sem precisar mexer no código.
+      </p>
+      <form id="formDestaque">
+        <div class="form-grid">
+          <div><label for="dTitulo">Título</label><input type="text" id="dTitulo" required placeholder="Ex: Confira o lançamento da nossa loja"></div>
+          <div><label for="dSubtitulo">Subtítulo (opcional)</label><input type="text" id="dSubtitulo" placeholder="Ex: consulte a agenda de eventos"></div>
+        </div>
+        <div class="form-grid">
+          <div>
+            <label for="dTipoLink">Ao clicar, leva para</label>
+            <select id="dTipoLink">
+              <option value="nenhum">Nada (só exibir)</option>
+              <option value="loja">A Loja MQV</option>
+              <option value="evento">Um evento específico</option>
+              <option value="url">Um link externo</option>
+            </select>
+          </div>
+          <div id="dEventoWrap" style="display:none;">
+            <label for="dEvento">Qual evento</label>
+            <select id="dEvento"></select>
+          </div>
+          <div id="dUrlWrap" style="display:none;">
+            <label for="dUrlExterna">Link (https://...)</label>
+            <input type="text" id="dUrlExterna" placeholder="https://...">
+          </div>
+        </div>
+        <label for="dImagem">Imagem do destaque (proporção larga, tipo banner)</label>
+        <input type="file" id="dImagem" accept="image/*" required style="display:block;margin-bottom:12px;">
+        <button type="submit" class="btn-primary">Adicionar destaque</button>
+      </form>
+    </div>
+
+    <h2 style="margin-top:24px;">Destaques cadastrados</h2>
+    <p style="font-size:.8rem;color:var(--olive-soft);margin-top:-10px;">Arraste não é suportado ainda — use o campo "ordem" de cada card para definir a sequência no carrossel.</p>
+    <div id="destaquesLista"></div>
   </section>
 
   <!-- ================= PRODUTOS ================= -->
@@ -541,7 +585,7 @@
   var supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   var session = null;
 
-  var state = { mulheres: [], eventos: [], pendencias: [], produtos: [], pedidosLoja: [], parceiros: [], vendasMes: [] };
+  var state = { mulheres: [], eventos: [], pendencias: [], produtos: [], pedidosLoja: [], parceiros: [], vendasMes: [], destaques: [] };
 
   function showToast(msg){
     var t = document.getElementById('toast');
@@ -628,6 +672,7 @@
     if(name === 'pendencias'){ renderPendencias(); }
     if(name === 'pedidosloja'){ renderPedidosLoja(); }
     if(name === 'parceiros'){ renderParceiros(); }
+    if(name === 'destaques'){ renderDestaquesLista(); }
     if(name === 'historico'){ showHistoricoLista(); }
   }
 
@@ -1481,6 +1526,7 @@
       .select('*, mv_mulheres(nome,tel)')
       .order('created_at', { ascending: false }).limit(300);
     var parceirosRes = await supabase.from('mv_parceiros').select('*').order('nome');
+    var destaquesRes = await supabase.from('mv_destaques').select('*').order('ordem');
     var primeiroDiaMes = new Date(); primeiroDiaMes.setDate(1); primeiroDiaMes.setHours(0,0,0,0);
     var vendasMesRes = await supabase.from('mv_pedidos_loja')
       .select('id, itens, valor_total, resolved_at')
@@ -1496,6 +1542,7 @@
     if(pedidosLojaRes.error){ console.error(pedidosLojaRes.error); }
     if(parceirosRes.error){ console.error(parceirosRes.error); }
     if(vendasMesRes.error){ console.error(vendasMesRes.error); }
+    if(destaquesRes.error){ console.error(destaquesRes.error); }
     state.mulheres = mulheresRes.data.map(function(m){ return { id: m.id, nome: m.nome, tel: m.tel, cpf: m.cpf, data_nascimento: m.data_nascimento, consentimento_marketing: m.consentimento_marketing, ativa: m.ativa !== false }; });
     state.eventos = eventosRes.data.map(function(ev){
       return {
@@ -1544,6 +1591,13 @@
       return {
         id: p.id, nome: p.nome, contato: p.contato_whatsapp, instagram: p.instagram,
         item: p.item_parceria, periodoInicio: p.periodo_inicio, periodoFim: p.periodo_fim
+      };
+    });
+    state.destaques = (destaquesRes.data || []).map(function(d){
+      return {
+        id: d.id, titulo: d.titulo, subtitulo: d.subtitulo, imagemUrl: d.imagem_url,
+        corFundo: d.cor_fundo, tipoLink: d.tipo_link, eventoId: d.evento_id, urlExterna: d.url_externa,
+        ordem: d.ordem, ativo: d.ativo !== false
       };
     });
     atualizarBadgePendencias();
@@ -2267,6 +2321,152 @@
   });
 
   function closeModalParceiro(){ document.getElementById('modalParceiroWrap').innerHTML = ''; }
+
+  // ============= DESTAQUES (carrossel do catálogo) =============
+
+  async function uploadImagemDestaque(file){
+    var ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    var path = 'destaque-' + Date.now() + '.' + ext;
+    var { error } = await supabase.storage.from('destaques-imagens').upload(path, file, { upsert: true });
+    if(error){ showToast('Erro ao enviar imagem: ' + error.message); return null; }
+    var { data } = supabase.storage.from('destaques-imagens').getPublicUrl(path);
+    return data.publicUrl;
+  }
+
+  function popularSelectEventosDestaque(){
+    var sel = document.getElementById('dEvento');
+    if(!sel) return;
+    var eventosAbertos = state.eventos.filter(function(e){ return e.status !== 'finalizado'; });
+    sel.innerHTML = eventosAbertos.map(function(e){
+      return '<option value="'+e.id+'">'+escapeHtml(e.nome)+' — '+fmtDate(e.data)+'</option>';
+    }).join('') || '<option value="">Nenhum evento em aberto</option>';
+  }
+
+  var tipoLinkSelectEl = document.getElementById('dTipoLink');
+  if(tipoLinkSelectEl){
+    tipoLinkSelectEl.addEventListener('change', function(){
+      document.getElementById('dEventoWrap').style.display = this.value === 'evento' ? '' : 'none';
+      document.getElementById('dUrlWrap').style.display = this.value === 'url' ? '' : 'none';
+      if(this.value === 'evento') popularSelectEventosDestaque();
+    });
+  }
+
+  var formDestaqueEl = document.getElementById('formDestaque');
+  if(formDestaqueEl){
+    formDestaqueEl.addEventListener('submit', async function(e){
+      e.preventDefault();
+      var titulo = document.getElementById('dTitulo').value.trim();
+      var subtitulo = document.getElementById('dSubtitulo').value.trim();
+      var tipoLink = document.getElementById('dTipoLink').value;
+      var eventoId = tipoLink === 'evento' ? (document.getElementById('dEvento').value || null) : null;
+      var urlExterna = tipoLink === 'url' ? document.getElementById('dUrlExterna').value.trim() : null;
+      var arquivo = document.getElementById('dImagem').files[0];
+      if(!titulo){ showToast('Informe o título do destaque.'); return; }
+      if(!arquivo){ showToast('Selecione uma imagem para o destaque.'); return; }
+      if(tipoLink === 'url' && !urlExterna){ showToast('Informe o link externo.'); return; }
+      if(tipoLink === 'evento' && !eventoId){ showToast('Selecione um evento.'); return; }
+
+      var form = this;
+      var btn = form.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = 'Enviando...';
+
+      var imagemUrl = await uploadImagemDestaque(arquivo);
+      if(!imagemUrl){ btn.disabled = false; btn.textContent = 'Adicionar destaque'; return; }
+
+      var proximaOrdem = state.destaques.reduce(function(max, d){ return Math.max(max, d.ordem||0); }, 0) + 1;
+
+      var { data: row, error } = await supabase.from('mv_destaques').insert({
+        titulo: titulo, subtitulo: subtitulo || null, imagem_url: imagemUrl,
+        tipo_link: tipoLink, evento_id: eventoId, url_externa: urlExterna,
+        ordem: proximaOrdem, ativo: true
+      }).select().single();
+
+      btn.disabled = false; btn.textContent = 'Adicionar destaque';
+      if(error){ showToast('Erro ao cadastrar destaque: ' + error.message); return; }
+
+      state.destaques.push({
+        id: row.id, titulo: row.titulo, subtitulo: row.subtitulo, imagemUrl: row.imagem_url,
+        corFundo: row.cor_fundo, tipoLink: row.tipo_link, eventoId: row.evento_id, urlExterna: row.url_externa,
+        ordem: row.ordem, ativo: true
+      });
+      form.reset();
+      document.getElementById('dEventoWrap').style.display = 'none';
+      document.getElementById('dUrlWrap').style.display = 'none';
+      renderDestaquesLista();
+      showToast('Destaque adicionado.');
+    });
+  }
+
+  function descricaoLinkDestaque(d){
+    if(d.tipoLink === 'loja') return '→ Leva para a Loja MQV';
+    if(d.tipoLink === 'evento'){
+      var ev = state.eventos.find(function(e){ return e.id === d.eventoId; });
+      return ev ? ('→ Leva para o evento "'+ev.nome+'"') : '→ Evento (não encontrado, pode ter sido excluído)';
+    }
+    if(d.tipoLink === 'url') return '→ Abre link: '+d.urlExterna;
+    return '— Sem ação ao clicar';
+  }
+
+  function renderDestaquesLista(){
+    var wrap = document.getElementById('destaquesLista');
+    if(!wrap) return;
+    var ordenados = state.destaques.slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); });
+    if(ordenados.length === 0){
+      wrap.innerHTML = '<div class="empty">Nenhum destaque cadastrado ainda.</div>';
+      return;
+    }
+    wrap.innerHTML = ordenados.map(function(d){
+      return '<div class="panel" style="margin-bottom:12px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;">' +
+        '<img src="'+d.imagemUrl+'" style="width:160px;aspect-ratio:21/9;object-fit:cover;border-radius:8px;flex-shrink:0;">' +
+        '<div style="flex:1;min-width:200px;">' +
+          '<h3 style="margin:0 0 4px;">'+escapeHtml(d.titulo)+'</h3>' +
+          (d.subtitulo ? '<div style="font-size:.82rem;color:var(--olive-deep);margin-bottom:4px;">'+escapeHtml(d.subtitulo)+'</div>' : '') +
+          '<div style="font-size:.78rem;color:var(--olive-soft);margin-bottom:8px;">'+descricaoLinkDestaque(d)+'</div>' +
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+            '<label style="font-size:.78rem;display:flex;align-items:center;gap:4px;">Ordem: <input type="number" data-ordem-destaque="'+d.id+'" value="'+(d.ordem||0)+'" style="width:60px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;"></label>' +
+            '<label style="font-size:.78rem;display:flex;align-items:center;gap:4px;"><input type="checkbox" data-ativo-destaque="'+d.id+'" '+(d.ativo?'checked':'')+'> Ativo (visível no carrossel)</label>' +
+          '</div>' +
+        '</div>' +
+        '<button class="btn-rose btn-sm" data-excluir-destaque="'+d.id+'">Excluir</button>' +
+      '</div>';
+    }).join('');
+
+    wrap.querySelectorAll('[data-ordem-destaque]').forEach(function(input){
+      input.addEventListener('change', async function(){
+        var id = this.dataset.ordemDestaque;
+        var novaOrdem = Number(this.value) || 0;
+        var { error } = await supabase.from('mv_destaques').update({ ordem: novaOrdem }).eq('id', id);
+        if(error){ showToast('Erro ao salvar ordem: ' + error.message); return; }
+        var d = state.destaques.find(function(x){ return x.id === id; });
+        if(d) d.ordem = novaOrdem;
+        renderDestaquesLista();
+      });
+    });
+
+    wrap.querySelectorAll('[data-ativo-destaque]').forEach(function(chk){
+      chk.addEventListener('change', async function(){
+        var id = this.dataset.ativoDestaque;
+        var novoAtivo = this.checked;
+        var { error } = await supabase.from('mv_destaques').update({ ativo: novoAtivo }).eq('id', id);
+        if(error){ showToast('Erro ao atualizar: ' + error.message); this.checked = !novoAtivo; return; }
+        var d = state.destaques.find(function(x){ return x.id === id; });
+        if(d) d.ativo = novoAtivo;
+        showToast(novoAtivo ? 'Destaque ativado.' : 'Destaque desativado.');
+      });
+    });
+
+    wrap.querySelectorAll('[data-excluir-destaque]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var id = this.dataset.excluirDestaque;
+        if(!confirm('Excluir este destaque definitivamente?')) return;
+        var { error } = await supabase.from('mv_destaques').delete().eq('id', id);
+        if(error){ showToast('Erro ao excluir: ' + error.message); return; }
+        state.destaques = state.destaques.filter(function(x){ return x.id !== id; });
+        renderDestaquesLista();
+        showToast('Destaque excluído.');
+      });
+    });
+  }
 
   function openEditParceiro(id){
     var p = state.parceiros.find(function(x){ return x.id===id; });
