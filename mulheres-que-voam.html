@@ -586,6 +586,13 @@
         <span style="text-transform:none;font-weight:400;font-size:.85rem;">Mostrar o card de boas-vindas no catálogo</span>
       </label>
       <button type="button" id="btnSalvarBoasVindas" class="btn-primary">Salvar</button>
+
+      <div style="margin-top:22px;padding-top:18px;border-top:1px solid var(--line);">
+        <label style="display:block;margin-bottom:6px;">Imagem do card</label>
+        <div id="cfgBoasVindasPreviewWrap" style="margin-bottom:10px;"></div>
+        <input type="file" id="cfgBoasVindasImagem" accept="image/*" style="display:block;margin-bottom:10px;">
+        <button type="button" id="btnSalvarBoasVindasImagem" class="btn-primary">Trocar imagem</button>
+      </div>
     </div>
   </section>
 
@@ -2362,12 +2369,25 @@
 
   // ============= CONFIGURAÇÕES =============
 
+  function renderPreviewImagemBoasVindas(){
+    var wrap = document.getElementById('cfgBoasVindasPreviewWrap');
+    if(!wrap) return;
+    var url = state.config.boas_vindas_imagem_url;
+    if(url){
+      wrap.innerHTML = '<img src="'+url+'" style="width:100%;max-width:280px;border-radius:10px;display:block;">' +
+        '<div style="font-size:.75rem;color:var(--olive-soft);margin-top:4px;">Imagem personalizada em uso.</div>';
+    } else {
+      wrap.innerHTML = '<div style="font-size:.8rem;color:var(--olive-soft);">Usando a imagem padrão do sistema. Suba uma abaixo para substituir.</div>';
+    }
+  }
+
   function preencherConfigWhatsapp(){
     var input = document.getElementById('cfgWhatsapp');
     if(!input) return;
     input.value = state.config.whatsapp_pedidos || '';
     var chk = document.getElementById('cfgBoasVindas');
     if(chk){ chk.checked = state.config.boas_vindas_ativo !== 'false'; }
+    renderPreviewImagemBoasVindas();
   }
 
   var formConfigWhatsappEl = document.getElementById('formConfigWhatsapp');
@@ -2385,6 +2405,32 @@
       state.config.whatsapp_pedidos = valor;
       document.getElementById('cfgWhatsapp').value = valor;
       showToast('Número atualizado. O catálogo já vai usar esse número nos próximos pedidos.');
+    });
+  }
+
+  var btnSalvarBoasVindasImagemEl = document.getElementById('btnSalvarBoasVindasImagem');
+  if(btnSalvarBoasVindasImagemEl){
+    btnSalvarBoasVindasImagemEl.addEventListener('click', async function(){
+      var arquivo = document.getElementById('cfgBoasVindasImagem').files[0];
+      if(!arquivo){ showToast('Selecione uma imagem primeiro.'); return; }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Enviando...';
+
+      var ext = (arquivo.name.split('.').pop() || 'jpg').toLowerCase();
+      var path = 'boas-vindas-' + Date.now() + '.' + ext;
+      var { error: uploadError } = await supabase.storage.from('destaques-imagens').upload(path, arquivo, { upsert: true });
+      if(uploadError){ showToast('Erro ao enviar imagem: ' + uploadError.message); btn.disabled = false; btn.textContent = 'Trocar imagem'; return; }
+      var { data: publicData } = supabase.storage.from('destaques-imagens').getPublicUrl(path);
+      var novaUrl = publicData.publicUrl;
+
+      var { error } = await supabase.from('mv_config')
+        .upsert({ chave: 'boas_vindas_imagem_url', valor: novaUrl, atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
+      btn.disabled = false; btn.textContent = 'Trocar imagem';
+      if(error){ showToast('Erro ao salvar: ' + error.message); return; }
+      state.config.boas_vindas_imagem_url = novaUrl;
+      document.getElementById('cfgBoasVindasImagem').value = '';
+      renderPreviewImagemBoasVindas();
+      showToast('Imagem do card de boas-vindas atualizada.');
     });
   }
 
