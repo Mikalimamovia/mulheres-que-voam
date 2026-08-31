@@ -574,6 +574,19 @@
         <button type="submit" class="btn-primary">Salvar número</button>
       </form>
     </div>
+
+    <div class="panel" style="max-width:480px;">
+      <h2>Card de boas-vindas</h2>
+      <p style="font-size:.82rem;color:var(--olive-soft);margin-top:-8px;">
+        É a janela com a imagem que aparece por cima do catálogo na primeira visita de cada pessoa.
+        Desative aqui se preferir que o catálogo abra direto, sem essa etapa.
+      </p>
+      <label style="display:flex;align-items:center;gap:8px;margin:6px 0 14px;">
+        <input type="checkbox" id="cfgBoasVindas" checked>
+        <span style="text-transform:none;font-weight:400;font-size:.85rem;">Mostrar o card de boas-vindas no catálogo</span>
+      </label>
+      <button type="button" id="btnSalvarBoasVindas" class="btn-primary">Salvar</button>
+    </div>
   </section>
 
   <footer class="note">Os dados ficam salvos no Supabase (sincronizado entre dispositivos). Use "Exportar backup" de vez em quando como cópia de segurança extra.</footer>
@@ -2353,6 +2366,8 @@
     var input = document.getElementById('cfgWhatsapp');
     if(!input) return;
     input.value = state.config.whatsapp_pedidos || '';
+    var chk = document.getElementById('cfgBoasVindas');
+    if(chk){ chk.checked = state.config.boas_vindas_ativo !== 'false'; }
   }
 
   var formConfigWhatsappEl = document.getElementById('formConfigWhatsapp');
@@ -2370,6 +2385,21 @@
       state.config.whatsapp_pedidos = valor;
       document.getElementById('cfgWhatsapp').value = valor;
       showToast('Número atualizado. O catálogo já vai usar esse número nos próximos pedidos.');
+    });
+  }
+
+  var btnSalvarBoasVindasEl = document.getElementById('btnSalvarBoasVindas');
+  if(btnSalvarBoasVindasEl){
+    btnSalvarBoasVindasEl.addEventListener('click', async function(){
+      var ativo = document.getElementById('cfgBoasVindas').checked;
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Salvando...';
+      var { error } = await supabase.from('mv_config')
+        .upsert({ chave: 'boas_vindas_ativo', valor: ativo ? 'true' : 'false', atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
+      btn.disabled = false; btn.textContent = 'Salvar';
+      if(error){ showToast('Erro ao salvar: ' + error.message); return; }
+      state.config.boas_vindas_ativo = ativo ? 'true' : 'false';
+      showToast(ativo ? 'Card de boas-vindas ativado.' : 'Card de boas-vindas desativado no catálogo.');
     });
   }
 
