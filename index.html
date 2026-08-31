@@ -403,6 +403,12 @@ async function loadWhatsappNumber() {
   return data.valor;
 }
 
+async function loadBoasVindasAtivo() {
+  const { data, error } = await supabase.from('mv_config').select('valor').eq('chave', 'boas_vindas_ativo').maybeSingle();
+  if (error || !data || !data.valor) { return true; } // se não houver configuração, mantém o comportamento atual (ativo)
+  return data.valor !== 'false';
+}
+
 async function loadProdutos() {
   // Lista explícita de colunas (nunca "*"): a coluna "custo" é bloqueada para
   // visitantes no banco de dados, então um select('*') quebraria o catálogo.
@@ -1133,10 +1139,13 @@ function renderWelcomeOverlay(wrap) {
 
 (async () => {
   try {
-    const [events, destaques, whatsappConfig] = await Promise.all([loadEvents(), loadDestaques(), loadWhatsappNumber()]);
+    const [events, destaques, whatsappConfig, boasVindasAtivo] = await Promise.all([
+      loadEvents(), loadDestaques(), loadWhatsappNumber(), loadBoasVindasAtivo()
+    ]);
     state.events = events;
     state.destaques = destaques;
     if (whatsappConfig) { WHATSAPP_NUMBER = whatsappConfig; }
+    if (!boasVindasAtivo) { state.showWelcome = false; }
     state.loading = false;
     render();
   } catch (err) {
