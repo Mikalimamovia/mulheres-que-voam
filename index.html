@@ -477,19 +477,29 @@ async function loadEvents() {
 
 let destaquesIntervalId = null;
 
+function atualizarSlideAtivoDOM(novoIndex) {
+  state.destaqueIndex = novoIndex;
+  const container = document.getElementById('destaquesWrap');
+  if (!container) return;
+  container.querySelectorAll('.destaque-slide').forEach((el, i) => el.classList.toggle('active', i === novoIndex));
+  container.querySelectorAll('.destaques-dots button').forEach((el, i) => el.classList.toggle('active', i === novoIndex));
+}
+
 function iniciarAutoplayDestaques() {
   if (destaquesIntervalId) return;
   destaquesIntervalId = setInterval(() => {
+    // Pausa a troca automática se houver qualquer janela aberta por cima (cadastro,
+    // detalhes do evento, zoom etc.), pra não atrapalhar quem está preenchendo algo.
+    if (state.modalEvent || state.detalhesEvent || state.progEvent || state.lightbox || state.showWelcome) return;
     if (!state.destaques || state.destaques.length < 2) return;
-    state.destaqueIndex = (state.destaqueIndex + 1) % state.destaques.length;
-    render();
+    atualizarSlideAtivoDOM((state.destaqueIndex + 1) % state.destaques.length);
   }, 5500);
 }
 
 function irParaDestaque(i) {
   if (!state.destaques || state.destaques.length === 0) return;
-  state.destaqueIndex = ((i % state.destaques.length) + state.destaques.length) % state.destaques.length;
-  render();
+  const novoIndex = ((i % state.destaques.length) + state.destaques.length) % state.destaques.length;
+  atualizarSlideAtivoDOM(novoIndex);
 }
 
 function abrirDestaque(d) {
