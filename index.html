@@ -386,7 +386,7 @@ let state = {
   cart: [], cartExpanded: false, checkoutError: '', lightbox: null,
   checkoutForm: { nome: '', tel: '', cpf: '', nasc: '', consentimento: false },
   showWelcome: !jaViuBoasVindas(),
-  destaques: [], destaqueIndex: 0
+  destaques: [], destaqueIndex: 0, welcomeImageUrl: null
 };
 
 async function loadDestaques() {
@@ -407,6 +407,12 @@ async function loadBoasVindasAtivo() {
   const { data, error } = await supabase.from('mv_config').select('valor').eq('chave', 'boas_vindas_ativo').maybeSingle();
   if (error || !data || !data.valor) { return true; } // se não houver configuração, mantém o comportamento atual (ativo)
   return data.valor !== 'false';
+}
+
+async function loadWelcomeImageUrl() {
+  const { data, error } = await supabase.from('mv_config').select('valor').eq('chave', 'boas_vindas_imagem_url').maybeSingle();
+  if (error || !data || !data.valor) { return null; } // mantém a imagem padrão embutida como respaldo
+  return data.valor;
 }
 
 async function loadProdutos() {
@@ -1118,9 +1124,10 @@ function renderCartDrawer(wrap) {
 function renderWelcomeOverlay(wrap) {
   const overlay = document.createElement('div');
   overlay.className = 'welcome-overlay';
+  const imgSrc = state.welcomeImageUrl || `data:image/jpeg;base64,${WELCOME_CARD_B64}`;
   overlay.innerHTML = `
     <div class="welcome-card-wrap">
-      <img src="data:image/jpeg;base64,${WELCOME_CARD_B64}" alt="Mulheres que Voam" class="welcome-card-img">
+      <img src="${imgSrc}" alt="Mulheres que Voam" class="welcome-card-img">
       <button type="button" class="welcome-btn" id="btn-seguir-catalogo">
         Seguir para o catálogo
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
@@ -1139,13 +1146,14 @@ function renderWelcomeOverlay(wrap) {
 
 (async () => {
   try {
-    const [events, destaques, whatsappConfig, boasVindasAtivo] = await Promise.all([
-      loadEvents(), loadDestaques(), loadWhatsappNumber(), loadBoasVindasAtivo()
+    const [events, destaques, whatsappConfig, boasVindasAtivo, welcomeImageUrl] = await Promise.all([
+      loadEvents(), loadDestaques(), loadWhatsappNumber(), loadBoasVindasAtivo(), loadWelcomeImageUrl()
     ]);
     state.events = events;
     state.destaques = destaques;
     if (whatsappConfig) { WHATSAPP_NUMBER = whatsappConfig; }
     if (!boasVindasAtivo) { state.showWelcome = false; }
+    state.welcomeImageUrl = welcomeImageUrl;
     state.loading = false;
     render();
   } catch (err) {
