@@ -319,21 +319,23 @@ async function registrarMulher(nomeCompleto, telCliente, cpfCliente, nascCliente
     consentimento_data: new Date().toISOString()
   }).select('id').single();
 
-  if (!error) return data.id;
+  if (!error) return { id: data.id, error: null };
 
   if (error.code === '23505') {
     // já existe (nome ou CPF duplicado) — busca o id existente pra vincular a pendência
-    const { data: existente } = await supabase.from('mv_mulheres')
+    const { data: existente, error: buscaError } = await supabase.from('mv_mulheres')
       .select('id').ilike('nome', nomeCompleto).maybeSingle();
-    return existente ? existente.id : null;
+    if (existente) return { id: existente.id, error: null };
+    console.error('Erro ao buscar mulher existente:', buscaError);
+    return { id: null, error: buscaError };
   }
 
   console.error('Erro ao cadastrar mulher:', error);
-  return null;
+  return { id: null, error };
 }
 
 async function registrarPendencia(mulherId, ev, formaPagamento) {
-  if (!mulherId) return;
+  if (!mulherId) return { ok: false, error: 'sem mulherId' };
   const { error } = await supabase.from('mv_pendencias').insert({
     mulher_id: mulherId,
     evento_id: ev.id,
@@ -341,7 +343,8 @@ async function registrarPendencia(mulherId, ev, formaPagamento) {
     valor: ev.preco,
     status: 'pendente'
   });
-  if (error) console.error('Erro ao registrar pendência:', error);
+  if (error) { console.error('Erro ao registrar pendência:', error); return { ok: false, error }; }
+  return { ok: true, error: null };
 }
 
 function isNomeValido(v) { return v.trim().split(/\s+/).length >= 2; }
@@ -476,7 +479,8 @@ async function registrarPedidoLoja(mulherId, itens, valorTotal, formaPagamento) 
   const { error } = await supabase.from('mv_pedidos_loja').insert({
     mulher_id: mulherId, itens: itensSnapshot, valor_total: valorTotal, forma_pagamento: formaPagamento, status: 'pendente'
   });
-  if (error) console.error('Erro ao registrar pedido da loja:', error);
+  if (error) { console.error('Erro ao registrar pedido da loja:', error); return { ok: false, error }; }
+  return { ok: true, error: null };
 }
 
 async function loadEvents() {
@@ -965,8 +969,13 @@ function renderModal(wrap) {
     // pelo navegador em celulares — o endereço é preenchido só depois.
     const novaJanela = window.open('', '_blank');
 
-    const mulherId = await registrarMulher(nome, tel, cpf, nasc);
-    await registrarPendencia(mulherId, ev, btn.dataset.method);
+    const { id: mulherId, error: mulherError } = await registrarMulher(nome, tel, cpf, nasc);
+    const { ok: pendenciaOk } = await registrarPendencia(mulherId, ev, btn.dataset.method);
+
+    if (!mulherId || !pendenciaOk) {
+      console.error('Falha ao salvar cadastro/pendência no catálogo.', mulherError);
+      alert('Seu pedido foi enviado pelo WhatsApp, mas houve um problema ao salvar seu cadastro no nosso sistema. Não se preocupe: a equipe ainda vai receber sua mensagem normalmente.');
+    }
 
     const msg = buildOrderMessage(ev, btn.dataset.method, nome);
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
@@ -1105,10 +1114,15 @@ function renderCartDrawer(wrap) {
 
     const novaJanela = window.open('', '_blank');
 
-    const mulherId = await registrarMulher(nome, tel, cpf, nasc);
+    const { id: mulherId, error: mulherError } = await registrarMulher(nome, tel, cpf, nasc);
     const itensPedido = state.cart.slice();
     const total = cartTotal();
-    await registrarPedidoLoja(mulherId, itensPedido, total, btn.dataset.method);
+    const pedidoResult = await registrarPedidoLoja(mulherId, itensPedido, total, btn.dataset.method);
+
+    if (!mulherId || (pedidoResult && pedidoResult.ok === false)) {
+      console.error('Falha ao salvar cadastro/pedido no catálogo.', mulherError);
+      alert('Seu pedido foi enviado pelo WhatsApp, mas houve um problema ao salvar seu cadastro no nosso sistema. Não se preocupe: a equipe ainda vai receber sua mensagem normalmente.');
+    }
 
     const msg = buildOrderMessageProdutos(itensPedido, btn.dataset.method, nome, total);
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
