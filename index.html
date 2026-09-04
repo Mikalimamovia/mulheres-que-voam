@@ -674,7 +674,7 @@ function render() {
       list.appendChild(card);
     });
     list.querySelectorAll('.buy-btn').forEach(btn => {
-      btn.addEventListener('click', () => { state.modalEvent = state.events.find(e => e.id === btn.dataset.id); render(); });
+      btn.addEventListener('click', () => { state.modalEvent = state.events.find(e => e.id === btn.dataset.id); state.modalError = ''; render(); });
     });
     list.querySelectorAll('.prog-btn').forEach(btn => {
       btn.addEventListener('click', () => abrirProgramacao(state.events.find(e => e.id === btn.dataset.progId)));
@@ -928,7 +928,7 @@ function renderModal(wrap) {
       <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--olive);font-weight:600;display:block;margin-bottom:5px;">Data de nascimento</label>
       <input id="input-nasc" type="date" class="input-field mb-3">
 
-      <div style="color:var(--rose-dark);font-size:.78rem;min-height:1em;margin-bottom:8px;">${state.modalError || ''}</div>
+      <div id="modal-error" style="color:var(--rose-dark);font-size:.78rem;min-height:1em;margin-bottom:8px;">${state.modalError || ''}</div>
 
       <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:14px;">
         <input id="input-consentimento" type="checkbox" style="margin-top:3px;">
@@ -951,17 +951,18 @@ function renderModal(wrap) {
   overlay.querySelector('#input-cpf').addEventListener('input', (e) => { e.target.value = maskCPF(e.target.value); });
 
   overlay.querySelectorAll('.pay-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const errEl = overlay.querySelector('#modal-error');
     const nome = overlay.querySelector('#input-nome').value.trim();
     const tel = overlay.querySelector('#input-tel').value.trim();
     const cpf = overlay.querySelector('#input-cpf').value.trim();
     const nasc = overlay.querySelector('#input-nasc').value;
     const consentiu = overlay.querySelector('#input-consentimento').checked;
-    if (!isNomeValido(nome)) { state.modalError = 'Informe seu nome completo (nome e sobrenome).'; render(); return; }
-    if (!isTelValido(tel)) { state.modalError = 'Informe um WhatsApp válido, com DDD.'; render(); return; }
-    if (!isCpfValido(cpf)) { state.modalError = 'Informe um CPF válido.'; render(); return; }
-    if (!nasc) { state.modalError = 'Informe sua data de nascimento.'; render(); return; }
-    if (!consentiu) { state.modalError = 'É preciso autorizar o uso dos dados para continuar.'; render(); return; }
-    state.modalError = '';
+    if (!isNomeValido(nome)) { errEl.textContent = 'Informe seu nome completo (nome e sobrenome).'; return; }
+    if (!isTelValido(tel)) { errEl.textContent = 'Informe um WhatsApp válido, com DDD.'; return; }
+    if (!isCpfValido(cpf)) { errEl.textContent = 'Informe um CPF válido.'; return; }
+    if (!nasc) { errEl.textContent = 'Informe sua data de nascimento.'; return; }
+    if (!consentiu) { errEl.textContent = 'É preciso autorizar o uso dos dados para continuar.'; return; }
+    errEl.textContent = '';
     btn.disabled = true;
     btn.textContent = 'Aguarde...';
 
